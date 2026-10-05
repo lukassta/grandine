@@ -781,8 +781,18 @@ where
             Ok(BlockAction::Ignore(publishable)) => {
                 let (gossip_id, sender) = origin.split();
 
-                if let Some(gossip_id) = gossip_id {
-                    self.send_to_p2p(P2pMessage::Ignore(gossip_id));
+                // `publishable` means the block is already known. Nothing to refetch.
+                if publishable {
+                    if let Some(gossip_id) = gossip_id {
+                        self.send_to_p2p(P2pMessage::Ignore(gossip_id));
+                    }
+                } else {
+                    debug_with_peers!("block ignored: {block_root:?}");
+
+                    self.send_to_p2p(P2pMessage::IgnoreWithReason(
+                        gossip_id,
+                        MutatorIgnoreReason::BlockIgnored { block_root },
+                    ));
                 }
 
                 reply_block_validation_result_to_http_api(
@@ -3639,11 +3649,25 @@ where
         is_before_deadline: bool,
     ) {
         let beacon_block_root = envelope.block_root();
+        let execution_block_hash = envelope.message.payload.block_hash;
 
         self.store_mut()
             .apply_execution_payload_envelope(envelope, is_before_deadline);
 
         self.update_store_snapshot();
+
+        // `notify_new_payload` is called during the envelope validation, so the payload status
+        // may arrive before the payload is even handled in the mutator
+        if let Some(payload_statuses) = self.delayed_until_payload.remove(&execution_block_hash) {
+            for (payload_status, _) in payload_statuses {
+                self.handle_notified_new_payload(
+                    wait_group,
+                    beacon_block_root,
+                    execution_block_hash,
+                    payload_status,
+                );
+            }
+        }
 
         self.notify_forkchoice_updated(self.store.head());
 
@@ -3858,8 +3882,13 @@ where
         let safe_block_hash = store.safe_execution_payload_hash();
         let finalized_block_hash = store.finalized_execution_payload_hash();
 
-        let head_block_hash = if let Some(post_gloas_state) = new_head.state(store).post_gloas() {
-            post_gloas_state.latest_block_hash()
+        let head_block_hash = if let Some(post_gloas_state) = new_head_state.post_gloas() {
+            // Match the branch the current-slot proposer will build on.
+            if store.should_build_on_full(store.slot()) {
+                post_gloas_state.latest_execution_payload_bid().block_hash
+            } else {
+                post_gloas_state.latest_block_hash()
+            }
         } else {
             state.latest_execution_payload_header().block_hash()
         };
@@ -3872,12 +3901,14 @@ where
                     block hash: {head_block_hash:?}, \
                     payload status: {:?}, \
                     payload verified: {}, \
-                    payload timely: {}\
+                    payload timely: {}, \
+                    build on full: {}\
                 )",
                 new_head.slot(),
                 PayloadPresence::from(store.head_payload_status()),
                 store.is_payload_verified(head_root),
                 store.is_payload_present_timely(head_root),
+                store.should_build_on_full(store.slot()),
             );
         }
 
