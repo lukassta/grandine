@@ -102,6 +102,52 @@ jobs:
         if: runner.os == 'Linux'
         run: scripts/ci/consensus-spec-tests-coverage.rb
 
+  # EIP-8321 is a compile-time consensus mode: enabling the feature changes the Gloas
+  # containers' SSZ layouts, so it cannot share a run with the Gloas fixtures and needs a job of
+  # its own. Its vectors are not in a consensus-spec release; they are committed under
+  # test-vectors/ and extracted by download_spec_tests.sh. See test-vectors/README.md.
+  eip8321:
+    # Skip pull_request events for same-repo branches (push already covers them)
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+      - name: Install system dependencies
+        run: |
+          sudo DEBIAN_FRONTEND='noninteractive' apt-get update && \
+            sudo DEBIAN_FRONTEND='noninteractive' apt-get install \
+            --no-install-recommends -yq \
+            ca-certificates \
+            libssl-dev \
+            clang \
+            cmake \
+            unzip \
+            xz-utils \
+            protobuf-compiler \
+            libprotobuf-dev \
+            libz-dev
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Download consensus-spec-tests and extract the EIP-8321 vectors
+        run: bash scripts/download_spec_tests.sh
+      - name: Fail if the EIP-8321 vectors are missing
+        run: |
+          for preset in mainnet minimal; do
+            directory="consensus-spec-tests/tests/$preset/eip8321"
+            if [[ -z "$(ls -A "$directory" 2>/dev/null)" ]]; then
+              echo "Missing $directory. Commit the vectors as described in test-vectors/README.md."
+              exit 1
+            fi
+          done
+      - name: Run EIP-8321 consensus tests
+        run: cargo test --release -p transition_functions -p bls -p kzg_utils --features bls/blst,kzg_utils/blst,transition_functions/eip8321
+      - name: Check the client builds with the feature enabled
+        run: cargo check --release -p grandine --features default-networks,eip8321
+
   zkvm-test:
     # Skip pull_request events for same-repo branches (push already covers them)
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository

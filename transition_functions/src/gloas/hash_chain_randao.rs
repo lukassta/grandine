@@ -983,3 +983,120 @@ mod tests {
         assert!(result.is_err());
     }
 }
+
+/// Vectors generated from `consensus-specs` for the operations EIP-8321 introduces.
+///
+/// They are not part of a `consensus-specs` release; `scripts/download_spec_tests.sh` extracts
+/// them from the archive committed under `test-vectors/`. See `test-vectors/README.md`.
+#[cfg(all(test, feature = "eip8321"))]
+mod spec_tests {
+    use anyhow::Result;
+    use duplicate::duplicate_item;
+    use helper_functions::verifier::{NullVerifier, SingleVerifier};
+    use pubkey_cache::PubkeyCache;
+    use spec_test_utils::{BlsSetting, Case, Meta};
+    use test_generator::test_resources;
+    use types::{
+        config::Config,
+        gloas::{beacon_state::BeaconState, containers::BeaconBlock},
+        nonstandard::Phase,
+        preset::{Mainnet, Minimal, Preset},
+    };
+
+    use super::*;
+
+    // Test files for `process_randao` are named `block.*` and contain `BeaconBlock`s.
+    #[duplicate_item(
+        glob                                                                 function_name    preset;
+        ["consensus-spec-tests/tests/mainnet/eip8321/operations/randao/*/*"] [mainnet_randao] [Mainnet];
+        ["consensus-spec-tests/tests/minimal/eip8321/operations/randao/*/*"] [minimal_randao] [Minimal];
+    )]
+    #[test_resources(glob)]
+    fn function_name(case: Case) {
+        run_case::<preset>(case, |config, pubkey_cache, state, meta| {
+            let block: BeaconBlock<preset> = case.ssz_default("block");
+
+            match meta.bls_setting {
+                BlsSetting::Optional | BlsSetting::Required => {
+                    process_randao(config, pubkey_cache, state, &block.body, SingleVerifier)
+                }
+                BlsSetting::Ignored => {
+                    process_randao(config, pubkey_cache, state, &block.body, NullVerifier)
+                }
+            }
+        });
+    }
+
+    #[duplicate_item(
+        glob                                                                                         function_name          preset;
+        ["consensus-spec-tests/tests/mainnet/eip8321/operations/randao_commitment_registration/*/*"] [mainnet_registration] [Mainnet];
+        ["consensus-spec-tests/tests/minimal/eip8321/operations/randao_commitment_registration/*/*"] [minimal_registration] [Minimal];
+    )]
+    #[test_resources(glob)]
+    fn function_name(case: Case) {
+        run_case::<preset>(case, |config, pubkey_cache, state, meta| {
+            let registration = case.ssz_default("randao_commitment_registration");
+
+            match meta.bls_setting {
+                BlsSetting::Optional | BlsSetting::Required => {
+                    process_randao_commitment_registration(
+                        config,
+                        pubkey_cache,
+                        state,
+                        registration,
+                        SingleVerifier,
+                    )
+                }
+                BlsSetting::Ignored => process_randao_commitment_registration(
+                    config,
+                    pubkey_cache,
+                    state,
+                    registration,
+                    NullVerifier,
+                ),
+            }
+        });
+    }
+
+    // We do not honor `bls_setting` here because `process_pending_randao_commitments` verifies
+    // no signatures.
+    #[duplicate_item(
+        glob                                                                                           function_name                 preset;
+        ["consensus-spec-tests/tests/mainnet/eip8321/epoch_processing/pending_randao_commitments/*/*"] [mainnet_pending_commitments] [Mainnet];
+        ["consensus-spec-tests/tests/minimal/eip8321/epoch_processing/pending_randao_commitments/*/*"] [minimal_pending_commitments] [Minimal];
+    )]
+    #[test_resources(glob)]
+    fn function_name(case: Case) {
+        run_case::<preset>(case, |_, _, state, _| {
+            process_pending_randao_commitments(state)
+        });
+    }
+
+    /// Runs one operation case. A case with no `post` state is one the operation must reject.
+    fn run_case<P: Preset>(
+        case: Case,
+        operation: impl FnOnce(&Config, &PubkeyCache, &mut BeaconState<P>, &Meta) -> Result<()>,
+    ) {
+        // A few upstream cases assert a property in Python and emit only a manifest, with no
+        // pre-state to run against.
+        if !case.exists("pre.ssz_snappy") {
+            return;
+        }
+
+        let pubkey_cache = PubkeyCache::default();
+        let mut state: BeaconState<P> = case.ssz_default("pre");
+        let post_option = case.try_ssz_default("post");
+        let meta = case.meta();
+        let config = P::default_config().upgrade_once(Phase::Gloas, state.fork.epoch);
+
+        let result = operation(&config, &pubkey_cache, &mut state, &meta).map(|()| state);
+
+        if let Some(expected_post) = post_option {
+            let actual_post = result.expect("operation processing should succeed");
+
+            assert_eq!(actual_post, expected_post);
+        } else {
+            result.expect_err("operation processing should fail");
+        }
+    }
+}

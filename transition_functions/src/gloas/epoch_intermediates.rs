@@ -109,7 +109,10 @@ pub fn epoch_deltas<P: Preset, D: EpochDeltas>(
         .collect()
 }
 
-#[cfg(test)]
+// The Gloas fixtures cannot be run with `eip8321` enabled: the feature changes the Gloas
+// containers' SSZ layouts, so the fixtures no longer deserialize. The EIP's own fixtures are
+// run in that configuration instead.
+#[cfg(all(test, not(feature = "eip8321")))]
 mod spec_tests {
     use spec_test_utils::Case;
     use test_generator::test_resources;

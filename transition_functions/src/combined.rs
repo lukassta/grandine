@@ -1246,8 +1246,6 @@ mod spec_tests {
         ["consensus-spec-tests/tests/minimal/electra/sanity/slots/*/*"]   [electra_minimal_slots]   [Minimal] [Electra];
         ["consensus-spec-tests/tests/mainnet/fulu/sanity/slots/*/*"]      [fulu_mainnet_slots]      [Mainnet] [Fulu];
         ["consensus-spec-tests/tests/minimal/fulu/sanity/slots/*/*"]      [fulu_minimal_slots]      [Minimal] [Fulu];
-        ["consensus-spec-tests/tests/mainnet/gloas/sanity/slots/*/*"]     [gloas_mainnet_slots]     [Mainnet] [Gloas];
-        ["consensus-spec-tests/tests/minimal/gloas/sanity/slots/*/*"]     [gloas_minimal_slots]     [Minimal] [Gloas];
     )]
     #[test_resources(glob)]
     fn function_name(case: Case) {
@@ -1299,17 +1297,85 @@ mod spec_tests {
         ["consensus-spec-tests/tests/minimal/fulu/finality/*/*/*"]         [fulu_minimal_finality]      [Minimal] [Fulu];
         ["consensus-spec-tests/tests/minimal/fulu/random/*/*/*"]           [fulu_minimal_random]        [Minimal] [Fulu];
         ["consensus-spec-tests/tests/minimal/fulu/sanity/blocks/*/*"]      [fulu_minimal_sanity]        [Minimal] [Fulu];
-        ["consensus-spec-tests/tests/mainnet/gloas/finality/*/*/*"]        [gloas_mainnet_finality]     [Mainnet] [Gloas];
-        ["consensus-spec-tests/tests/mainnet/gloas/random/*/*/*"]          [gloas_mainnet_random]       [Mainnet] [Gloas];
-        ["consensus-spec-tests/tests/mainnet/gloas/sanity/blocks/*/*"]     [gloas_mainnet_sanity]       [Mainnet] [Gloas];
-        ["consensus-spec-tests/tests/minimal/gloas/finality/*/*/*"]        [gloas_minimal_finality]     [Minimal] [Gloas];
-        ["consensus-spec-tests/tests/minimal/gloas/random/*/*/*"]          [gloas_minimal_random]       [Minimal] [Gloas];
-        ["consensus-spec-tests/tests/minimal/gloas/sanity/blocks/*/*"]     [gloas_minimal_sanity]       [Minimal] [Gloas];
     )]
     #[test_resources(glob)]
     fn function_name(case: Case) {
         let config = preset::default_config().start_and_stay_in(Phase::phase);
         run_blocks_case::<preset>(&config, case);
+    }
+
+    // EIP-8321 reuses the Gloas phase: with the feature enabled, the Gloas containers are the
+    // EIP's containers, so these run the same helpers against the EIP's fixtures. The Gloas
+    // fixtures above cannot be run in that configuration because the SSZ layouts differ, which
+    // is why the Gloas spec tests are compiled out of it.
+    #[cfg(feature = "eip8321")]
+    #[duplicate_item(
+        glob                                                              function_name            preset;
+        ["consensus-spec-tests/tests/mainnet/eip8321/sanity/slots/*/*"]   [eip8321_mainnet_slots]  [Mainnet];
+        ["consensus-spec-tests/tests/minimal/eip8321/sanity/slots/*/*"]   [eip8321_minimal_slots]  [Minimal];
+    )]
+    #[test_resources(glob)]
+    fn function_name(case: Case) {
+        let config = preset::default_config().start_and_stay_in(Phase::Gloas);
+        run_slots_case::<preset>(&config, case).expect("slot processing should succeed")
+    }
+
+    #[cfg(feature = "eip8321")]
+    #[duplicate_item(
+        glob                                                              function_name              preset;
+        ["consensus-spec-tests/tests/mainnet/eip8321/finality/*/*/*"]     [eip8321_mainnet_finality] [Mainnet];
+        ["consensus-spec-tests/tests/minimal/eip8321/finality/*/*/*"]     [eip8321_minimal_finality] [Minimal];
+        ["consensus-spec-tests/tests/mainnet/eip8321/sanity/blocks/*/*"]  [eip8321_mainnet_sanity]   [Mainnet];
+        ["consensus-spec-tests/tests/minimal/eip8321/sanity/blocks/*/*"]  [eip8321_minimal_sanity]   [Minimal];
+    )]
+    #[test_resources(glob)]
+    fn function_name(case: Case) {
+        let config = preset::default_config().start_and_stay_in(Phase::Gloas);
+        run_blocks_case::<preset>(&config, case);
+    }
+
+    // The Gloas fixtures cannot be run with `eip8321` enabled: the feature changes the Gloas
+    // containers' SSZ layouts, so the fixtures no longer deserialize. The EIP's own fixtures are
+    // run in that configuration instead, by the blocks and slots tests above.
+    #[cfg(not(feature = "eip8321"))]
+    #[duplicate_item(
+        glob                                                            function_name          preset;
+        ["consensus-spec-tests/tests/mainnet/gloas/sanity/slots/*/*"]   [gloas_mainnet_slots]  [Mainnet];
+        ["consensus-spec-tests/tests/minimal/gloas/sanity/slots/*/*"]   [gloas_minimal_slots]  [Minimal];
+    )]
+    #[test_resources(glob)]
+    fn function_name(case: Case) {
+        let config = preset::default_config().start_and_stay_in(Phase::Gloas);
+        run_slots_case::<preset>(&config, case).expect("slot processing should succeed")
+    }
+
+    // See the comment on the Gloas slots tests above.
+    #[cfg(not(feature = "eip8321"))]
+    #[duplicate_item(
+        glob                                                              function_name            preset;
+        ["consensus-spec-tests/tests/mainnet/gloas/finality/*/*/*"]       [gloas_mainnet_finality] [Mainnet];
+        ["consensus-spec-tests/tests/mainnet/gloas/random/*/*/*"]         [gloas_mainnet_random]   [Mainnet];
+        ["consensus-spec-tests/tests/mainnet/gloas/sanity/blocks/*/*"]    [gloas_mainnet_sanity]   [Mainnet];
+        ["consensus-spec-tests/tests/minimal/gloas/finality/*/*/*"]       [gloas_minimal_finality] [Minimal];
+        ["consensus-spec-tests/tests/minimal/gloas/random/*/*/*"]         [gloas_minimal_random]   [Minimal];
+        ["consensus-spec-tests/tests/minimal/gloas/sanity/blocks/*/*"]    [gloas_minimal_sanity]   [Minimal];
+    )]
+    #[test_resources(glob)]
+    fn function_name(case: Case) {
+        let config = preset::default_config().start_and_stay_in(Phase::Gloas);
+        run_blocks_case::<preset>(&config, case);
+    }
+
+    // See the comment on the Gloas slots tests above.
+    #[cfg(not(feature = "eip8321"))]
+    #[duplicate_item(
+        glob                                                             function_name              preset;
+        ["consensus-spec-tests/tests/mainnet/gloas/transition/*/*/*"]    [gloas_mainnet_transition] [Mainnet];
+        ["consensus-spec-tests/tests/minimal/gloas/transition/*/*/*"]    [gloas_minimal_transition] [Minimal];
+    )]
+    #[test_resources(glob)]
+    fn function_name(case: Case) {
+        run_transition_case::<preset>(case);
     }
 
     #[duplicate_item(
@@ -1326,8 +1392,6 @@ mod spec_tests {
         ["consensus-spec-tests/tests/minimal/electra/transition/*/*/*"]   [electra_minimal_transition]   [Minimal];
         ["consensus-spec-tests/tests/mainnet/fulu/transition/*/*/*"]      [fulu_mainnet_transition]      [Mainnet];
         ["consensus-spec-tests/tests/minimal/fulu/transition/*/*/*"]      [fulu_minimal_transition]      [Minimal];
-        ["consensus-spec-tests/tests/mainnet/gloas/transition/*/*/*"]     [gloas_mainnet_transition]      [Mainnet];
-        ["consensus-spec-tests/tests/minimal/gloas/transition/*/*/*"]     [gloas_minimal_transition]      [Minimal];
     )]
     #[test_resources(glob)]
     fn function_name(case: Case) {

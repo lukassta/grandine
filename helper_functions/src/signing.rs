@@ -453,7 +453,11 @@ impl<P: Preset> SignForSingleFork<P> for VoluntaryExit {
         let domain_type = <Self as SignForSingleFork<P>>::DOMAIN_TYPE;
         let current_fork_version = beacon_state.fork().current_version;
 
-        let domain = if current_fork_version == config.deneb_fork_version
+        // Every fork from Deneb onwards uses the Capella domain. Post-Gloas states are matched by
+        // phase rather than by fork version: EIP-8321 carries a version `Config` does not name,
+        // and the enumeration below needs extending for each new fork, as the TODO above notes.
+        let domain = if beacon_state.post_gloas().is_some()
+            || current_fork_version == config.deneb_fork_version
             || current_fork_version == config.electra_fork_version
             || current_fork_version == config.fulu_fork_version
             || current_fork_version == config.gloas_fork_version

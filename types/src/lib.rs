@@ -98,7 +98,9 @@ pub mod gloas {
 
     mod container_impls;
 
-    #[cfg(test)]
+    // The Gloas fixtures cannot be run with `eip8321` enabled: the feature changes these
+    // containers' SSZ layouts, so the fixtures no longer deserialize.
+    #[cfg(all(test, not(feature = "eip8321")))]
     mod spec_tests;
 }
 

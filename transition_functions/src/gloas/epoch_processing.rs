@@ -305,7 +305,10 @@ fn process_historical_summaries_update<P: Preset>(state: &mut BeaconState<P>) ->
     Ok(())
 }
 
-#[cfg(test)]
+// The Gloas fixtures cannot be run with `eip8321` enabled: the feature changes the Gloas
+// containers' SSZ layouts, so the fixtures no longer deserialize. The EIP's own fixtures are
+// run in that configuration instead.
+#[cfg(all(test, not(feature = "eip8321")))]
 mod spec_tests {
     use helper_functions::misc::vec_of_default;
     use spec_test_utils::Case;
@@ -715,6 +718,49 @@ mod spec_tests {
 
         if let Some(expected_post) = post_option {
             let actual_post = result.expect("epoch processing should succeed");
+            assert_eq!(actual_post, expected_post);
+        } else {
+            result.expect_err("epoch processing should fail");
+        }
+    }
+}
+
+/// Vectors generated from `consensus-specs` for the epoch processing EIP-8321 changes.
+///
+/// Only `pending_deposits` is covered here: it is the category whose behaviour the EIP alters,
+/// through `apply_pending_deposit`. The rest of epoch processing is exercised by the EIP's
+/// `sanity/blocks` and `finality` vectors, which run full epoch transitions.
+///
+/// See `test-vectors/README.md` for where the fixtures come from.
+#[cfg(all(test, feature = "eip8321"))]
+mod eip8321_spec_tests {
+    use duplicate::duplicate_item;
+    use spec_test_utils::Case;
+    use test_generator::test_resources;
+    use types::preset::{Mainnet, Minimal};
+
+    use super::*;
+
+    // We do not honor `bls_setting` here because epoch processing verifies no signatures.
+    #[duplicate_item(
+        glob                                                                                      function_name                    preset;
+        ["consensus-spec-tests/tests/mainnet/eip8321/epoch_processing/pending_deposits/*/*"]       [mainnet_pending_deposits]       [Mainnet];
+        ["consensus-spec-tests/tests/minimal/eip8321/epoch_processing/pending_deposits/*/*"]       [minimal_pending_deposits]       [Minimal];
+        ["consensus-spec-tests/tests/mainnet/eip8321/epoch_processing/pending_deposits_churn/*/*"] [mainnet_pending_deposits_churn] [Mainnet];
+        ["consensus-spec-tests/tests/minimal/eip8321/epoch_processing/pending_deposits_churn/*/*"] [minimal_pending_deposits_churn] [Minimal];
+    )]
+    #[test_resources(glob)]
+    fn function_name(case: Case) {
+        let pubkey_cache = PubkeyCache::default();
+        let mut state: BeaconState<preset> = case.ssz_default("pre");
+        let post_option = case.try_ssz_default("post");
+
+        let result = process_pending_deposits(&preset::default_config(), &pubkey_cache, &mut state)
+            .map(|()| state);
+
+        if let Some(expected_post) = post_option {
+            let actual_post = result.expect("epoch processing should succeed");
+
             assert_eq!(actual_post, expected_post);
         } else {
             result.expect_err("epoch processing should fail");

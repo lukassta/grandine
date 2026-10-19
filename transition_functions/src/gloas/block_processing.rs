@@ -1442,7 +1442,10 @@ pub fn process_proposer_slashing<P: Preset>(
     )
 }
 
-#[cfg(test)]
+// The Gloas fixtures cannot be run with `eip8321` enabled: the feature changes the Gloas
+// containers' SSZ layouts, so the fixtures no longer deserialize. The EIP's own fixtures are
+// run in that configuration instead.
+#[cfg(all(test, not(feature = "eip8321")))]
 mod spec_tests {
     use core::fmt::Debug;
 

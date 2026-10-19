@@ -28,6 +28,12 @@ SSZ_URL="https://github.com/ethereum/ssz-specs/releases/download/${SSZ_SPEC_VERS
 # that are now part of the consensus-spec release (run by compliance_tests.rs).
 TARBALLS=("general" "minimal" "mainnet" "comptests")
 
+# EIP-8321 is not in a consensus-spec release, so its vectors cannot be downloaded. They are
+# committed as an archive instead and extracted into the same tree as the downloaded fixtures.
+# See test-vectors/README.md.
+EIP8321_ARCHIVE="test-vectors/eip8321.tar.xz"
+EIP8321_MARKER="${TESTS_DIR}/.eip8321-version"
+
 # Normalize paths on Windows Git Bash
 if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
     TESTS_DIR=$(cygpath -m "$TESTS_DIR")
@@ -60,6 +66,17 @@ verify_subdir() {
         comptests) echo "tests/minimal/fulu/fork_choice_compliance" ;;
         *)         echo "tests/$1" ;;
     esac
+}
+
+fetch_digest() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | cut -d' ' -f1
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$1" | cut -d' ' -f1
+    else
+        # No digest tool: fall back to the size, which still catches a replaced archive.
+        wc -c < "$1" | tr -d ' '
+    fi
 }
 
 # Function to verify tarball extraction was successful
@@ -314,6 +331,44 @@ download_ssz_tests() {
     return 1
 }
 
+extract_eip8321_tests() {
+    if [[ ! -f "$EIP8321_ARCHIVE" ]]; then
+        echo "EIP-8321 vectors not present ($EIP8321_ARCHIVE); skipping."
+        echo "  Tests behind the eip8321 feature need them. See test-vectors/README.md."
+        return 0
+    fi
+
+    # The archive is committed, so its content is identified by its own hash rather than by a
+    # release version. Re-extract only when it changes.
+    local archive_digest
+    archive_digest="$(fetch_digest "$EIP8321_ARCHIVE")"
+
+    if [[ -f "$EIP8321_MARKER" ]] && [[ "$(<"$EIP8321_MARKER")" == "$archive_digest" ]]; then
+        echo "EIP-8321 vectors already extracted."
+        return 0
+    fi
+
+    echo "Extracting EIP-8321 vectors..."
+
+    rm -rf "${TESTS_DIR:?}/tests/"*"/eip8321"
+    mkdir -p "${TESTS_DIR}/tests"
+
+    if ! tar -xJf "$EIP8321_ARCHIVE" -C "${TESTS_DIR}/tests"; then
+        echo "Error: failed to extract $EIP8321_ARCHIVE"
+        return 1
+    fi
+
+    if [[ -z "$(ls -A "${TESTS_DIR}/tests/minimal/eip8321" 2>/dev/null)" ]] &&
+       [[ -z "$(ls -A "${TESTS_DIR}/tests/mainnet/eip8321" 2>/dev/null)" ]]; then
+        echo "Error: $EIP8321_ARCHIVE contains no <preset>/eip8321 directories"
+        return 1
+    fi
+
+    echo "$archive_digest" > "$EIP8321_MARKER"
+    echo "  ✓ EIP-8321 vectors extracted to ${TESTS_DIR}/tests"
+}
+
 download_consensus_tests
 download_cryptography_tests
 download_ssz_tests
+extract_eip8321_tests
