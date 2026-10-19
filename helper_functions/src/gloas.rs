@@ -187,7 +187,7 @@ pub fn align_randao_commitments<P: Preset>(
     clippy::unnecessary_wraps,
     reason = "mirrors the signature of the eip8321 implementation"
 )]
-pub fn align_randao_commitments<P: Preset>(
+pub const fn align_randao_commitments<P: Preset>(
     _state: &mut (impl PostGloasBeaconState<P> + ?Sized),
 ) -> Result<()> {
     Ok(())
