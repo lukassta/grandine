@@ -1,7 +1,7 @@
 use core::num::NonZeroUsize;
 
 use typenum::{
-    Prod, Sum, U0, U1, U2, U4, U46, U64, U128, U357, U367, U735, U808, U897, U898, U2048,
+    Prod, Sum, U0, U1, U2, U4, U16, U46, U64, U357, U367, U735, U808, U897, U898, U2048,
     assert_type_eq,
 };
 
@@ -29,8 +29,11 @@ use nonzero_ext::nonzero;
 /// fields 21..=84: gindexes 2944..=3007 (46 * 64 + i - 21)
 /// ```
 ///
-/// `signed_execution_payload_bid` is field 10 of the gloas `BeaconBlockBody`
-/// (a `ProgressiveContainer` with 13 active fields): 352 + (10 - 5) = 357.
+/// A field's position is its declared position, not its index among the active fields:
+/// inactive positions are merkleized as zero chunks and still occupy a leaf. The indices below
+/// are therefore unaffected by forks that deactivate earlier fields, such as EIP-8321.
+///
+/// `signed_execution_payload_bid` is field 10 of the gloas `BeaconBlockBody`: 352 + (10 - 5) = 357.
 type SignedExecutionPayloadBidGindex = U357;
 
 /// [`EXECUTION_BLOCK_HASH_GINDEX_GLOAS`](https://github.com/ethereum/consensus-specs/blob/v1.7.0-alpha.12/specs/gloas/light-client/sync-protocol.md#constants)
@@ -38,8 +41,8 @@ type SignedExecutionPayloadBidGindex = U357;
 /// `get_generalized_index(BeaconBlockBody, 'signed_execution_payload_bid', 'message', 'parent_block_hash')`
 ///
 /// `SignedExecutionPayloadBid` is a plain container (`message` at gindex 2), while
-/// `ExecutionPayloadBid` is a `ProgressiveContainer` with 12 active fields
-/// (`parent_block_hash` is field 0, gindex 4): concat(357, 2, 4) = 2856.
+/// `ExecutionPayloadBid` is a `ProgressiveContainer` whose field 0 is `parent_block_hash`
+/// (gindex 4): concat(357, 2, 4) = 2856.
 pub type ExecutionBlockHashGindexGloas = ConcatGeneralizedIndices<
     ConcatGeneralizedIndices<SignedExecutionPayloadBidGindex, GeneralizedIndexInContainer<U0, U2>>,
     U4,
@@ -51,8 +54,7 @@ assert_type_eq!(ExecutionBlockHashGindexGloas, Sum<U2048, U808>); // 2856
 ///
 /// `get_generalized_index(BeaconState, 'finalized_checkpoint', 'root')`
 ///
-/// `finalized_checkpoint` is field 20 of the gloas `BeaconState` (a
-/// `ProgressiveContainer` with 46 active fields): 352 + (20 - 5) = 367.
+/// `finalized_checkpoint` is field 20 of the gloas `BeaconState`: 352 + (20 - 5) = 367.
 /// `root` is field 1 of the plain `Checkpoint` container: concat(367, 3) = 735.
 pub type FinalizedRootGindexGloas =
     ConcatGeneralizedIndices<U367, GeneralizedIndexInContainer<U1, U2>>;
@@ -116,4 +118,14 @@ pub const PAYLOAD_BUILDER_VERSION: u8 = 0;
 pub const COMMITMENT_REGISTRATION_DELAY: Epoch = 3;
 
 /// [`MAX_RANDAO_COMMITMENT_REGISTRATIONS`](https://eips.ethereum.org/EIPS/eip-8321)
-pub type MaxRandaoCommitmentRegistrations = U128;
+///
+/// `randao_commitment_registrations` is a `ProgressiveList`, which has no capacity of its own,
+/// so this bound is enforced by `process_randao_commitment_registrations`.
+pub const MAX_RANDAO_COMMITMENT_REGISTRATIONS: usize = 128;
+
+// Inclusion lists (EIP-7805)
+/// [`INCLUSION_LIST_COMMITTEE_SIZE`](https://eips.ethereum.org/EIPS/eip-7805)
+///
+/// Heze adds `inclusion_list_bits` to `ExecutionPayloadBid`; EIP-8321 inherits the field, so the
+/// size is needed to match its SSZ layout even though inclusion lists are not implemented.
+pub type InclusionListCommitteeSize = U16;

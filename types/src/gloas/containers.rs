@@ -10,6 +10,8 @@ use ssz::{
 };
 use typenum::Log2;
 
+#[cfg(feature = "eip8321")]
+use crate::gloas::consts::InclusionListCommitteeSize;
 use crate::{
     altair::containers::{SyncAggregate, SyncCommittee},
     bellatrix::primitives::Gas,
@@ -313,9 +315,10 @@ pub struct ExecutionPayloadBid<P: Preset> {
     pub execution_payment: Gwei,
     pub blob_kzg_commitments: ProgressiveList<KzgCommitment>,
     pub execution_requests_root: H256,
-    /// Heze (EIP-7805), inherited by EIP-8321.
+    /// [New in Heze:EIP7805] Inherited by EIP-8321, which is why the field is present without
+    /// inclusion lists being implemented: it is part of the bid's SSZ layout.
     #[cfg(feature = "eip8321")]
-    pub inclusion_list_bits: BitVector<typenum::U16>,
+    pub inclusion_list_bits: BitVector<InclusionListCommitteeSize>,
     #[ssz(skip)]
     #[serde(skip)]
     pub phantom: PhantomData<P>,

@@ -115,8 +115,3 @@ mod unphased {
     #[cfg(test)]
     pub mod spec_tests;
 }
-
-#[cfg(feature = "eip8321")]
-pub mod heze {
-    pub mod beacon_state;
-}

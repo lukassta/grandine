@@ -247,8 +247,6 @@ pub mod gloas {
     pub(crate) use state_transition::{state_transition, verify_signatures};
 
     mod block_processing;
-    #[cfg(all(test, feature = "eip8321"))]
-    mod eip8321_reference_vectors;
     mod epoch_intermediates;
     mod epoch_processing;
     mod execution_payload_processing;

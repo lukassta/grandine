@@ -1215,7 +1215,12 @@ impl<P: Preset, W: Wait> BlockBuildContext<P, W> {
                                 signed_execution_payload_bid: SignedExecutionPayloadBid::default(),
                                 payload_attestations,
                                 parent_execution_requests,
-                                ..GloasBeaconBlockBody::default()
+                                // The producer only supports the legacy BLS reveal path, which
+                                // requires an unset hash chain reveal.
+                                #[cfg(feature = "eip8321")]
+                                hash_chain_reveal: H256::zero(),
+                                #[cfg(feature = "eip8321")]
+                                randao_commitment_registrations: ProgressiveList::default(),
                             },
                         }))
                     }
@@ -1940,8 +1945,9 @@ impl<P: Preset, W: Wait> BlockBuildContext<P, W> {
             execution_payment: 0,
             blob_kzg_commitments: blob_kzg_commitments_opt.unwrap_or_default().into(),
             execution_requests_root,
+            #[cfg(feature = "eip8321")]
+            inclusion_list_bits: BitVector::default(),
             phantom: PhantomData,
-            ..ExecutionPayloadBid::default()
         };
 
         Ok(Some(SignedExecutionPayloadBid {

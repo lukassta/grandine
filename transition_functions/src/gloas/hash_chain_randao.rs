@@ -7,6 +7,14 @@
 //! The entry points are compiled as no-ops (or, for `process_randao`, as the unmodified Gloas
 //! function) unless the `eip8321` feature is enabled, because the fields the EIP adds to
 //! `BeaconState` and `BeaconBlockBody` change their SSZ layouts.
+//!
+//! There are no `spec_tests` here yet. EIP-8321 is not in a `consensus-specs` release, so
+//! `scripts/download_spec_tests.sh` cannot fetch its vectors and `test_resources` globs would
+//! fail to compile. Once the vectors ship, add `operations/randao`,
+//! `operations/randao_commitment_registration` and `epoch_processing/pending_randao_commitments`
+//! in the same shape as the Gloas spec tests. Until then they can be generated with
+//! `make test reftests=true fork=eip8321` in a `consensus-specs` checkout and run against this
+//! code by copying them into `consensus-spec-tests/tests/<preset>/eip8321/`.
 
 #[cfg(feature = "eip8321")]
 pub use with_eip8321::*;
@@ -27,11 +35,10 @@ mod with_eip8321 {
     };
     use pubkey_cache::PubkeyCache;
     use ssz::{SszList as _, SszListMut as _};
-    use typenum::Unsigned as _;
     use types::{
         config::Config,
         gloas::{
-            consts::{COMMITMENT_REGISTRATION_DELAY, MaxRandaoCommitmentRegistrations},
+            consts::{COMMITMENT_REGISTRATION_DELAY, MAX_RANDAO_COMMITMENT_REGISTRATIONS},
             containers::{
                 BeaconBlockBody, PendingRandaoCommitment, SignedRandaoCommitmentRegistration,
             },
@@ -78,6 +85,14 @@ mod with_eip8321 {
                 )?;
             }
 
+            // > Mix in RANDAO reveal
+            //
+            // The [Eth Beacon Node API specification] does not say whether the RANDAO reveal
+            // should be mixed in when `skip_randao_verification` is `true`.
+            // [Lighthouse mixes it in either way].
+            //
+            // [Eth Beacon Node API specification]: https://ethereum.github.io/beacon-APIs/
+            // [Lighthouse mixes it in either way]: https://github.com/sigp/lighthouse/blob/v4.3.0/consensus/state_processing/src/per_block_processing.rs#L282-L309
             get_randao_mix(state, epoch) ^ hashing::hash_768(body.randao_reveal)
         } else {
             // > Hash chain reveal
@@ -90,7 +105,7 @@ mod with_eip8321 {
             // > Check that the proposer knows the preimage.
             //
             // This costs one hash, so `SkipRandaoVerification` does not apply to it.
-            let computed = hashing::blake3_hash_chain_link(reveal);
+            let computed = hashing::blake3_chain_link(reveal);
 
             ensure!(
                 computed == commitment,
@@ -123,10 +138,10 @@ mod with_eip8321 {
         mut verifier: impl Verifier,
     ) -> Result<()> {
         ensure!(
-            body.randao_commitment_registrations.len() <= MaxRandaoCommitmentRegistrations::USIZE,
+            body.randao_commitment_registrations.len() <= MAX_RANDAO_COMMITMENT_REGISTRATIONS,
             Error::<P>::TooManyOperations {
                 kind: "RANDAO commitment registrations",
-                maximum: MaxRandaoCommitmentRegistrations::USIZE,
+                maximum: MAX_RANDAO_COMMITMENT_REGISTRATIONS,
                 in_block: body.randao_commitment_registrations.len(),
             },
         );
@@ -182,6 +197,10 @@ mod with_eip8321 {
     ///
     /// At most one registration per validator may be pending. The check also rejects a second
     /// registration for the same validator within a single block.
+    ///
+    /// The scan is linear in the pending queue, which is itself unbounded, so a block of
+    /// `MAX_RANDAO_COMMITMENT_REGISTRATIONS` registrations costs that many passes over it. A
+    /// pending-index cache would remove the quadratic factor if the queue ever grows large.
     fn queue_randao_commitment<P: Preset>(
         state: &mut impl PostGloasBeaconState<P>,
         index: ValidatorIndex,
@@ -279,6 +298,10 @@ mod with_eip8321 {
 }
 
 #[cfg(not(feature = "eip8321"))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "these mirror the signatures of the eip8321 implementations"
+)]
 mod without_eip8321 {
     use anyhow::Result;
     use helper_functions::verifier::Verifier;
@@ -347,21 +370,23 @@ mod tests {
         traits::{SecretKey as _, SignatureBytes as _},
     };
     use helper_functions::{
-        signing::SignForAllForksWithGenesis as _,
-        verifier::{NullVerifier, SingleVerifier},
+        misc,
+        signing::{RandaoEpoch, SignForAllForksWithGenesis as _, SignForSingleFork as _},
+        verifier::{MultiVerifier, NullVerifier, SingleVerifier, VerifierOption},
     };
     use itertools::Itertools as _;
     use pubkey_cache::PubkeyCache;
-    use ssz::{SszList as _, SszListMut as _};
+    use ssz::{Hc, SszList as _, SszListMut as _};
     use std_ext::CopyExt as _;
     use tap::{Conv as _, TryConv as _};
     use types::{
         config::Config,
         gloas::{
             beacon_state::BeaconState as GloasBeaconState,
-            consts::COMMITMENT_REGISTRATION_DELAY,
+            consts::{COMMITMENT_REGISTRATION_DELAY, MAX_RANDAO_COMMITMENT_REGISTRATIONS},
             containers::{
-                BeaconBlockBody, PendingRandaoCommitment, RandaoCommitmentRegistration,
+                BeaconBlock, BeaconBlockBody, PendingRandaoCommitment,
+                RandaoCommitmentRegistration, SignedBeaconBlock,
                 SignedRandaoCommitmentRegistration,
             },
         },
@@ -371,6 +396,7 @@ mod tests {
     };
 
     use super::*;
+    use crate::unphased::Error;
 
     const PREVIOUS_MIX: H256 = H256::repeat_byte(7);
     const CHAIN_SECRET: H256 = H256::repeat_byte(42);
@@ -378,7 +404,7 @@ mod tests {
     #[test]
     fn hash_chain_reveal_advances_commitment_and_folds_mix() -> Result<()> {
         let reveal = CHAIN_SECRET;
-        let commitment = hashing::blake3_hash_chain_link(reveal);
+        let commitment = hashing::blake3_chain_link(reveal);
         let mut state = state_with_validator(PublicKeyBytes::default())?;
 
         *state.randao_commitments.get_mut(0)? = commitment;
@@ -401,11 +427,38 @@ mod tests {
     }
 
     #[test]
+    fn consecutive_reveals_consume_one_chain_link_each() -> Result<()> {
+        let config = Config::minimal();
+        let first = hashing::blake3_chain_link(CHAIN_SECRET);
+        let mut state = state_with_validator(PublicKeyBytes::default())?;
+
+        *state.randao_commitments.get_mut(0)? = hashing::blake3_chain_link(first);
+
+        // Both reveals land in the same epoch, so the second folds into the first one's mix.
+        for reveal in [first, CHAIN_SECRET] {
+            process_randao(
+                &config,
+                &PubkeyCache::default(),
+                &mut state,
+                &body_with_hash_chain_reveal(reveal),
+                NullVerifier,
+            )?;
+        }
+
+        assert_eq!(*state.randao_commitments.get(0)?, CHAIN_SECRET);
+        assert_eq!(
+            *state.randao_mixes.mod_index(0),
+            hashing::blake3_256_256(hashing::blake3_256_256(PREVIOUS_MIX, first), CHAIN_SECRET),
+        );
+
+        Ok(())
+    }
+
+    #[test]
     fn hash_chain_reveal_rejects_value_that_is_not_a_preimage() -> Result<()> {
         let mut state = state_with_validator(PublicKeyBytes::default())?;
 
-        *state.randao_commitments.get_mut(0)? =
-            hashing::blake3_hash_chain_link(H256::repeat_byte(1));
+        *state.randao_commitments.get_mut(0)? = hashing::blake3_chain_link(H256::repeat_byte(1));
 
         assert_process_randao_error(
             &mut state,
@@ -419,7 +472,7 @@ mod tests {
     fn hash_chain_reveal_rejects_zero_reveal() -> Result<()> {
         let mut state = state_with_validator(PublicKeyBytes::default())?;
 
-        *state.randao_commitments.get_mut(0)? = hashing::blake3_hash_chain_link(H256::zero());
+        *state.randao_commitments.get_mut(0)? = hashing::blake3_chain_link(H256::zero());
 
         assert_process_randao_error(&mut state, body_with_hash_chain_reveal(H256::zero()));
 
@@ -431,7 +484,7 @@ mod tests {
         let reveal = CHAIN_SECRET;
         let mut state = state_with_validator(PublicKeyBytes::default())?;
 
-        *state.randao_commitments.get_mut(0)? = hashing::blake3_hash_chain_link(reveal);
+        *state.randao_commitments.get_mut(0)? = hashing::blake3_chain_link(reveal);
 
         let body = BeaconBlockBody::<Minimal> {
             randao_reveal: SignatureBytes::repeat_byte(1),
@@ -449,6 +502,65 @@ mod tests {
         let mut state = state_with_validator(PublicKeyBytes::default())?;
 
         assert_process_randao_error(&mut state, body_with_hash_chain_reveal(CHAIN_SECRET));
+
+        Ok(())
+    }
+
+    #[test]
+    fn unregistered_proposer_verifies_bls_reveal_and_xors_the_mix() -> Result<()> {
+        let config = Config::minimal();
+        let secret_key = secret_key();
+        let mut state = state_with_validator(secret_key.to_public_key().into())?;
+        let signature = RandaoEpoch::from(0)
+            .sign(&config, &state, &secret_key)
+            .into();
+
+        let body = BeaconBlockBody::<Minimal> {
+            randao_reveal: signature,
+            ..BeaconBlockBody::default()
+        };
+
+        process_randao(
+            &config,
+            &PubkeyCache::default(),
+            &mut state,
+            &body,
+            SingleVerifier,
+        )?;
+
+        assert_eq!(
+            *state.randao_mixes.mod_index(0),
+            PREVIOUS_MIX ^ hashing::hash_768(signature),
+        );
+        assert!(state.randao_commitments.get(0)?.is_zero());
+
+        Ok(())
+    }
+
+    #[test]
+    fn unregistered_proposer_rejects_bls_reveal_for_wrong_epoch() -> Result<()> {
+        let config = Config::minimal();
+        let secret_key = secret_key();
+        let mut state = state_with_validator(secret_key.to_public_key().into())?;
+
+        let body = BeaconBlockBody::<Minimal> {
+            randao_reveal: RandaoEpoch::from(1)
+                .sign(&config, &state, &secret_key)
+                .into(),
+            ..BeaconBlockBody::default()
+        };
+
+        assert!(
+            process_randao(
+                &config,
+                &PubkeyCache::default(),
+                &mut state,
+                &body,
+                SingleVerifier,
+            )
+            .is_err(),
+        );
+        assert_eq!(*state.randao_mixes.mod_index(0), PREVIOUS_MIX);
 
         Ok(())
     }
@@ -553,6 +665,80 @@ mod tests {
     }
 
     #[test]
+    fn registration_rejects_tampered_signature() -> Result<()> {
+        let config = Config::minimal();
+        let secret_key = secret_key();
+        let mut state = state_with_validator(secret_key.to_public_key().into())?;
+
+        let mut message = RandaoCommitmentRegistration {
+            validator_index: 0,
+            commitment: H256::repeat_byte(3),
+        };
+
+        let signature = message.sign(&config, &state, &secret_key).into();
+
+        message.commitment = H256::repeat_byte(4);
+
+        assert!(
+            process_randao_commitment_registration(
+                &config,
+                &PubkeyCache::default(),
+                &mut state,
+                SignedRandaoCommitmentRegistration { message, signature },
+                SingleVerifier,
+            )
+            .is_err(),
+        );
+        assert_eq!(state.pending_randao_commitments.len_usize(), 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn registrations_over_the_per_block_limit_are_rejected_before_queuing() -> Result<()> {
+        let mut state = state_with_validator(PublicKeyBytes::default())?;
+
+        let registration = SignedRandaoCommitmentRegistration {
+            message: RandaoCommitmentRegistration {
+                validator_index: 0,
+                commitment: H256::repeat_byte(3),
+            },
+            signature: SignatureBytes::empty(),
+        };
+
+        let body = BeaconBlockBody::<Minimal> {
+            randao_commitment_registrations: vec![
+                registration;
+                MAX_RANDAO_COMMITMENT_REGISTRATIONS + 1
+            ]
+            .try_into()?,
+            ..BeaconBlockBody::default()
+        };
+
+        let error = process_randao_commitment_registrations(
+            &Config::minimal(),
+            &PubkeyCache::default(),
+            &mut state,
+            &body,
+            NullVerifier,
+        )
+        .expect_err("more registrations than the per-block limit must be invalid");
+
+        assert!(matches!(
+            error.downcast_ref::<Error<Minimal>>(),
+            Some(Error::TooManyOperations {
+                maximum: MAX_RANDAO_COMMITMENT_REGISTRATIONS,
+                ..
+            }),
+        ));
+
+        // The limit is checked before any registration is queued.
+        assert_eq!(state.pending_randao_commitments.len_usize(), 0);
+
+        Ok(())
+    }
+
+    #[test]
     fn only_due_pending_commitments_are_activated() -> Result<()> {
         let mut state = state_with_validator(PublicKeyBytes::default())?;
 
@@ -586,6 +772,132 @@ mod tests {
                 .copied()
                 .collect_vec(),
             [not_due],
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn pending_commitment_activates_at_the_delay_and_cannot_be_replayed() -> Result<()> {
+        let config = Config::minimal();
+        let pubkey_cache = PubkeyCache::default();
+        let secret_key = secret_key();
+        let mut state = state_with_validator(secret_key.to_public_key().into())?;
+
+        let message = RandaoCommitmentRegistration {
+            validator_index: 0,
+            commitment: hashing::blake3_chain_link(CHAIN_SECRET),
+        };
+
+        let registration = SignedRandaoCommitmentRegistration {
+            signature: message.sign(&config, &state, &secret_key).into(),
+            message,
+        };
+
+        process_randao_commitment_registration(
+            &config,
+            &pubkey_cache,
+            &mut state,
+            registration,
+            SingleVerifier,
+        )?;
+
+        // Not yet due in epoch 0.
+        process_pending_randao_commitments(&mut state)?;
+
+        assert!(state.randao_commitments.get(0)?.is_zero());
+        assert_eq!(state.pending_randao_commitments.len_usize(), 1);
+
+        // `process_pending_randao_commitments` compares against the next epoch, so the
+        // registration becomes active one epoch before `COMMITMENT_REGISTRATION_DELAY`.
+        state.slot =
+            misc::compute_start_slot_at_epoch::<Minimal>(COMMITMENT_REGISTRATION_DELAY - 1);
+
+        process_pending_randao_commitments(&mut state)?;
+
+        assert_eq!(*state.randao_commitments.get(0)?, message.commitment);
+        assert_eq!(state.pending_randao_commitments.len_usize(), 0);
+
+        // Replaying the same registration is rejected now that the validator is registered.
+        assert!(
+            process_randao_commitment_registration(
+                &config,
+                &pubkey_cache,
+                &mut state,
+                registration,
+                SingleVerifier,
+            )
+            .is_err(),
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn block_signature_verifier_accepts_a_valid_registration() -> Result<()> {
+        let config = Config::minimal();
+        let secret_key = secret_key();
+        let state = state_with_validator(secret_key.to_public_key().into())?;
+
+        let message = RandaoCommitmentRegistration {
+            validator_index: 0,
+            commitment: H256::repeat_byte(3),
+        };
+
+        let registration = SignedRandaoCommitmentRegistration {
+            signature: message.sign(&config, &state, &secret_key).into(),
+            message,
+        };
+
+        crate::gloas::verify_signatures(
+            &config,
+            &PubkeyCache::default(),
+            &state,
+            &block_with_registrations(&config, &state, &secret_key, vec![registration])?,
+            isolating_verifier(),
+        )
+    }
+
+    #[test]
+    fn block_signature_verifier_rejects_a_forged_registration() -> Result<()> {
+        let config = Config::minimal();
+        let secret_key = secret_key();
+        let state = state_with_validator(secret_key.to_public_key().into())?;
+
+        // A block with no registrations passes, which isolates the registration as the only
+        // difference between the two cases below.
+        crate::gloas::verify_signatures(
+            &config,
+            &PubkeyCache::default(),
+            &state,
+            &block_with_registrations(&config, &state, &secret_key, vec![])?,
+            isolating_verifier(),
+        )?;
+
+        let mut message = RandaoCommitmentRegistration {
+            validator_index: 0,
+            commitment: H256::repeat_byte(3),
+        };
+
+        let signature = message.sign(&config, &state, &secret_key).into();
+
+        message.commitment = H256::repeat_byte(4);
+
+        assert!(
+            crate::gloas::verify_signatures(
+                &config,
+                &PubkeyCache::default(),
+                &state,
+                &block_with_registrations(
+                    &config,
+                    &state,
+                    &secret_key,
+                    vec![SignedRandaoCommitmentRegistration { message, signature }],
+                )?,
+                isolating_verifier(),
+            )
+            .is_err(),
+            "the block signature verification path accepted a forged registration",
         );
 
         Ok(())
@@ -628,6 +940,34 @@ mod tests {
         }
     }
 
+    /// A block whose only real signatures are the legacy RANDAO reveal and the registrations,
+    /// so that `verify_signatures` exercises exactly those.
+    fn block_with_registrations(
+        config: &Config,
+        state: &GloasBeaconState<Minimal>,
+        secret_key: &SecretKey,
+        registrations: Vec<SignedRandaoCommitmentRegistration>,
+    ) -> Result<SignedBeaconBlock<Minimal>> {
+        Ok(SignedBeaconBlock {
+            message: Hc::new(BeaconBlock {
+                body: BeaconBlockBody {
+                    randao_reveal: RandaoEpoch::from(0).sign(config, state, secret_key).into(),
+                    randao_commitment_registrations: registrations.try_into()?,
+                    ..BeaconBlockBody::default()
+                },
+                ..BeaconBlock::default()
+            }),
+            signature: SignatureBytes::empty(),
+        })
+    }
+
+    fn isolating_verifier() -> MultiVerifier {
+        MultiVerifier::new([
+            VerifierOption::SkipBlockRootSignature,
+            VerifierOption::SkipBlockSyncAggregateSignature,
+        ])
+    }
+
     fn assert_process_randao_error(
         state: &mut GloasBeaconState<Minimal>,
         body: BeaconBlockBody<Minimal>,
@@ -642,5 +982,4 @@ mod tests {
 
         assert!(result.is_err());
     }
-    include!("hash_chain_randao_review_tests.rs");
 }

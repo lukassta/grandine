@@ -160,6 +160,10 @@ fn get_index_for_new_builder<P: Preset>(state: &impl PostGloasBeaconState<P>) ->
 /// called after the paths that onboard validators, which produces the same state: a zero entry
 /// means unregistered, and nothing reads a commitment in between.
 ///
+/// Every path that appends to the registry must call this, or `randao_commitments` will be short
+/// and `process_randao` will fail with an index error. The callers are `Incremental::finish` in
+/// `genesis` and `gloas::epoch_processing::apply_pending_deposit`.
+///
 /// [EIP-8321]: https://eips.ethereum.org/EIPS/eip-8321
 #[cfg(feature = "eip8321")]
 pub fn align_randao_commitments<P: Preset>(
@@ -174,7 +178,15 @@ pub fn align_randao_commitments<P: Preset>(
     Ok(())
 }
 
+/// Callers invoke [`align_randao_commitments`] unconditionally, so the feature-off build needs a
+/// no-op with the same signature.
+///
+/// [`align_randao_commitments`]: align_randao_commitments
 #[cfg(not(feature = "eip8321"))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "mirrors the signature of the eip8321 implementation"
+)]
 pub fn align_randao_commitments<P: Preset>(
     _state: &mut (impl PostGloasBeaconState<P> + ?Sized),
 ) -> Result<()> {

@@ -50,6 +50,7 @@ use types::{
             ExecutionPayloadBid, ExecutionRequests, PayloadAttestation, SignedBeaconBlock,
             SignedExecutionPayloadBid,
         },
+        primitives::BuilderIndex,
     },
     nonstandard::{AttestationEpoch, SlashingKind},
     phase0::{
@@ -64,6 +65,9 @@ use types::{
         PostGloasBeaconState,
     },
 };
+
+#[cfg(feature = "eip8321")]
+use types::{phase0::primitives::ValidatorIndex, traits::AttesterSlashing};
 
 use crate::{
     altair,
@@ -293,6 +297,35 @@ fn get_builder_withdrawals_count<P: Preset>(
     Ok(processed_count)
 }
 
+/// A builder's balance less the withdrawals already queued against it in this sweep.
+///
+/// Heze deducts them so that a builder appearing twice in one sweep cannot be withdrawn twice.
+#[cfg(feature = "eip8321")]
+fn withdrawable_builder_balance(
+    balance: Gwei,
+    builder_index: BuilderIndex,
+    withdrawals: &[Withdrawal],
+) -> Gwei {
+    let validator_index = convert_builder_index_to_validator_index(builder_index);
+
+    balance.saturating_sub(
+        withdrawals
+            .iter()
+            .filter(|withdrawal| withdrawal.validator_index == validator_index)
+            .map(|withdrawal| withdrawal.amount)
+            .sum(),
+    )
+}
+
+#[cfg(not(feature = "eip8321"))]
+const fn withdrawable_builder_balance(
+    balance: Gwei,
+    _builder_index: BuilderIndex,
+    _withdrawals: &[Withdrawal],
+) -> Gwei {
+    balance
+}
+
 fn get_builders_sweep_withdrawals_count<P: Preset>(
     state: &(impl PostGloasBeaconState<P> + ?Sized),
     withdrawal_index: &mut WithdrawalIndex,
@@ -311,18 +344,8 @@ fn get_builders_sweep_withdrawals_count<P: Preset>(
         }
 
         let builder = state.builders().get(builder_index)?;
-        #[cfg(not(feature = "eip8321"))]
-        let balance = builder.balance;
-        #[cfg(feature = "eip8321")]
-        let balance = builder.balance.saturating_sub(
-            withdrawals
-                .iter()
-                .filter(|w| {
-                    w.validator_index == convert_builder_index_to_validator_index(builder_index)
-                })
-                .map(|w| w.amount)
-                .sum(),
-        );
+        let balance = withdrawable_builder_balance(builder.balance, builder_index, withdrawals);
+
         if builder.withdrawable_epoch <= current_epoch && balance > 0 {
             withdrawals.push(Withdrawal {
                 index: *withdrawal_index,
@@ -795,6 +818,9 @@ pub fn apply_parent_execution_payload<P: Preset>(
         P::MaxBuilderExitRequestsPerPayload::USIZE,
     )?;
 
+    // Heze processes the execution requests *after* settling the parent builder's payment, so
+    // that a request cannot spend a balance the payment has not been credited to yet. The call
+    // therefore appears at both positions, selected by the feature, rather than being moved.
     #[cfg(not(feature = "eip8321"))]
     process_execution_requests(config, pubkey_cache, state, execution_requests)?;
 
@@ -818,6 +844,7 @@ pub fn apply_parent_execution_payload<P: Preset>(
             })?;
     }
 
+    // See the comment on the Gloas-ordered call above.
     #[cfg(feature = "eip8321")]
     process_execution_requests(config, pubkey_cache, state, execution_requests)?;
 
@@ -930,7 +957,9 @@ where
         + BlockBodyWithBlsToExecutionChanges<P>
         + BlockBodyWithPayloadAttestations<P>,
 {
-    // Heze removes deposits from the block body.
+    // > [Modified in Fulu:EIP6110]
+    //
+    // Heze removes `deposits` from the block body entirely, so there is nothing to check.
     #[cfg(not(feature = "eip8321"))]
     ensure!(
         body.deposits().len_usize() == 0,
@@ -985,7 +1014,17 @@ where
     }
 
     for attester_slashing in body.attester_slashings() {
+        #[cfg(feature = "eip8321")]
         process_attester_slashing(
+            config,
+            pubkey_cache,
+            state,
+            attester_slashing,
+            &mut verifier,
+            &mut slot_report,
+        )?;
+        #[cfg(not(feature = "eip8321"))]
+        electra::process_attester_slashing(
             config,
             pubkey_cache,
             state,
@@ -1295,47 +1334,56 @@ pub fn process_payload_attestation<P: Preset>(
     )
 }
 
+/// > Remove the `BuilderPendingPayment`s for a slashed proposer.
 #[cfg(feature = "eip8321")]
 fn clear_builder_payments<P: Preset>(
     state: &mut impl PostGloasBeaconState<P>,
-    slashed_index: u64,
-) -> Result<()> {
+    slashed_index: ValidatorIndex,
+) {
     for index in 0..BuilderPendingPaymentsLength::<P>::U64 {
         let payment = state.builder_pending_payments_mut().mod_index_mut(index);
+
         if payment.proposer_index == slashed_index {
             *payment = BuilderPendingPayment::default();
         }
     }
-    Ok(())
 }
 
-pub fn process_attester_slashing<P: Preset>(
+/// [`process_attester_slashing`](https://eips.ethereum.org/EIPS/eip-8321)
+///
+/// Identical to Electra's, except that a slashed proposer's pending builder payments are
+/// discarded. Only the body differs, so Electra's validation is reused rather than wrapped:
+/// the slashed indices it returns are needed to clear the payments.
+#[cfg(feature = "eip8321")]
+fn process_attester_slashing<P: Preset>(
     config: &Config,
     pubkey_cache: &PubkeyCache,
     state: &mut impl PostGloasBeaconState<P>,
-    attester_slashing: &impl types::traits::AttesterSlashing<P>,
+    attester_slashing: &impl AttesterSlashing<P>,
     verifier: impl Verifier,
     mut slot_report: impl SlotReport,
 ) -> Result<()> {
-    let indices = unphased::validate_attester_slashing_with_verifier(
+    let slashable_indices = unphased::validate_attester_slashing_with_verifier(
         config,
         pubkey_cache,
         state,
         attester_slashing,
         verifier,
     )?;
-    for index in indices {
+
+    for validator_index in slashable_indices {
         slash_validator(
             config,
             state,
-            index,
+            validator_index,
             None,
             SlashingKind::Attester,
             &mut slot_report,
         )?;
-        #[cfg(feature = "eip8321")]
-        clear_builder_payments(state, index)?;
+
+        clear_builder_payments(state, validator_index);
     }
+
     Ok(())
 }
 
@@ -1382,7 +1430,7 @@ pub fn process_proposer_slashing<P: Preset>(
     }
 
     #[cfg(feature = "eip8321")]
-    clear_builder_payments(state, proposer_index)?;
+    clear_builder_payments(state, proposer_index);
 
     slash_validator(
         config,
@@ -1495,7 +1543,7 @@ mod spec_tests {
     processing_tests! {
         process_attester_slashing,
         |config, pubkey_cache, state, attester_slashing: AttesterSlashing<P>, _| {
-            process_attester_slashing(
+            electra::process_attester_slashing(
                 config,
                 pubkey_cache,
                 state,

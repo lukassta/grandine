@@ -287,9 +287,12 @@ pub fn hash_768(bytes: impl AsRef<[u8; 96]>) -> H256 {
 pub const HASH_CHAIN_RANDAO_DST: &[u8] = b"HASH_CHAIN_RANDAO";
 
 /// One link of an EIP-8321 hash chain: `blake3(HASH_CHAIN_RANDAO_DST + value)`.
+///
+/// EIP-8321 uses BLAKE3 rather than SHA-256 for the chain and the RANDAO accumulator, so these
+/// two functions are deliberately not interchangeable with the `hash_*` functions above.
 #[inline]
 #[must_use]
-pub fn blake3_hash_chain_link(value: H256) -> H256 {
+pub fn blake3_chain_link(value: H256) -> H256 {
     let mut hasher = blake3::Hasher::new();
     hasher.update(HASH_CHAIN_RANDAO_DST);
     hasher.update(value.as_bytes());
@@ -318,9 +321,9 @@ mod tests {
     fn hash_chain_link_is_domain_separated() {
         let value = H256::repeat_byte(1);
 
-        assert_ne!(blake3_hash_chain_link(value), blake3_256_256(value, value));
+        assert_ne!(blake3_chain_link(value), blake3_256_256(value, value));
         assert_eq!(
-            blake3_hash_chain_link(value),
+            blake3_chain_link(value),
             H256(blake3::hash(&[HASH_CHAIN_RANDAO_DST, value.as_bytes()].concat()).into()),
         );
     }

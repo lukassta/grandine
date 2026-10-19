@@ -111,6 +111,11 @@ pub fn verify_signatures<P: Preset>(
         //
         // > [Modified in EIP-8321] A proposer with a registered hash-chain commitment reveals a
         // > preimage instead of a signature, which `process_randao` checks.
+        //
+        // This uses the block's claimed `proposer_index`, like the block signature above, whereas
+        // `process_randao` uses the computed proposer. The two agree because
+        // `process_block_header` rejects a block whose `proposer_index` is not the computed one,
+        // and a mismatch can only skip a signature check for a block that is rejected anyway.
 
         if !hash_chain_randao::has_randao_commitment(state, block.message.proposer_index)? {
             verifier.verify_singular(

@@ -111,13 +111,16 @@ pub enum Error<P: Preset> {
         computed: UnixSeconds,
         in_block: UnixSeconds,
     },
+    #[cfg(feature = "eip8321")]
     #[error(
         "hash chain reveal in block ({in_block:?}) is not a preimage of \
          the stored RANDAO commitment ({in_state:?})"
     )]
     HashChainRevealMismatch { in_state: H256, in_block: H256 },
+    #[cfg(feature = "eip8321")]
     #[error("hash chain reveal is non-zero but proposer {index} has no RANDAO commitment")]
     HashChainRevealNotEmpty { index: ValidatorIndex },
+    #[cfg(feature = "eip8321")]
     #[error("hash chain reveal is zero but proposer {index} has a RANDAO commitment")]
     HashChainRevealZero { index: ValidatorIndex },
     #[error("no attesters slashed")]
@@ -165,12 +168,16 @@ pub enum Error<P: Preset> {
     },
     #[error("slots in proposer slashing do not match ({slot_1} != {slot_2})")]
     ProposerSlashingSlotMismatch { slot_1: Slot, slot_2: Slot },
+    #[cfg(feature = "eip8321")]
     #[error("validator {index} already has a pending RANDAO commitment registration")]
     RandaoCommitmentAlreadyPending { index: ValidatorIndex },
+    #[cfg(feature = "eip8321")]
     #[error("validator {index} already has a registered RANDAO commitment")]
     RandaoCommitmentAlreadyRegistered { index: ValidatorIndex },
+    #[cfg(feature = "eip8321")]
     #[error("RANDAO commitment in registration is zero")]
     RandaoCommitmentZero,
+    #[cfg(feature = "eip8321")]
     #[error("BLS RANDAO reveal is non-empty but proposer {index} has a RANDAO commitment")]
     RandaoRevealNotEmpty { index: ValidatorIndex },
     #[error("block slot ({block_slot}) does not match state slot ({state_slot})")]

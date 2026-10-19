@@ -16,10 +16,16 @@ use types::{
     PtcWindow,
     capella::containers::HistoricalSummary,
     config::Config,
+    electra::containers::PendingDeposit,
     gloas::{beacon_state::BeaconState, containers::BuilderPendingPayment},
     phase0::consts::FAR_FUTURE_EPOCH,
     preset::{BuilderPendingPaymentsLength, Preset},
     traits::{BeaconState as _, PostGloasBeaconState},
+};
+
+#[cfg(feature = "eip8321")]
+use {
+    helper_functions::gloas::align_randao_commitments, types::phase0::consts::BLS_WITHDRAWAL_PREFIX,
 };
 
 use super::epoch_intermediates;
@@ -102,35 +108,55 @@ pub fn process_epoch(
     Ok(())
 }
 
+/// [`apply_pending_deposit`](https://eips.ethereum.org/EIPS/eip-8321)
+///
+/// Heze stops onboarding validators with BLS withdrawal credentials, and EIP-8321 keeps
+/// `randao_commitments` the same length as the registry. Top-ups to existing validators and
+/// deposits with other credential types are unaffected.
+#[cfg(feature = "eip8321")]
 fn apply_pending_deposit<P: Preset>(
     config: &Config,
     pubkey_cache: &PubkeyCache,
     state: &mut impl PostGloasBeaconState<P>,
-    deposit: &types::electra::containers::PendingDeposit,
+    deposit: &PendingDeposit,
 ) -> Result<()> {
-    #[cfg(feature = "eip8321")]
-    if index_of_public_key(state, &deposit.pubkey).is_none()
-        && deposit.withdrawal_credentials.as_bytes()[0] == 0
+    let is_new_validator = index_of_public_key(state, &deposit.pubkey).is_none();
+
+    // > Skip deposits that would add a validator with BLS withdrawal credentials.
+    if is_new_validator
+        && deposit
+            .withdrawal_credentials
+            .as_bytes()
+            .starts_with(BLS_WITHDRAWAL_PREFIX)
     {
         return Ok(());
     }
-    #[cfg(feature = "eip8321")]
-    let old_count = state.validators().len_usize();
+
     electra::apply_pending_deposit(config, pubkey_cache, state, deposit)?;
-    #[cfg(feature = "eip8321")]
-    for _ in old_count..state.validators().len_usize() {
-        state
-            .randao_commitments_mut()
-            .push(types::phase0::primitives::H256::zero())?;
+
+    if is_new_validator {
+        // > Every validator starts unregistered, on the legacy BLS reveal path.
+        align_randao_commitments(state)?;
     }
+
     Ok(())
+}
+
+#[cfg(not(feature = "eip8321"))]
+fn apply_pending_deposit<P: Preset>(
+    config: &Config,
+    pubkey_cache: &PubkeyCache,
+    state: &mut impl PostGloasBeaconState<P>,
+    deposit: &PendingDeposit,
+) -> Result<()> {
+    electra::apply_pending_deposit(config, pubkey_cache, state, deposit)
 }
 
 #[expect(
     clippy::useless_let_if_seq,
     reason = "assignments with multiple variables are more readable with conditional affectation"
 )]
-pub(crate) fn process_pending_deposits<P: Preset>(
+fn process_pending_deposits<P: Preset>(
     config: &Config,
     pubkey_cache: &PubkeyCache,
     state: &mut impl PostGloasBeaconState<P>,
@@ -209,9 +235,7 @@ pub(crate) fn process_pending_deposits<P: Preset>(
     Ok(())
 }
 
-pub(super) fn process_ptc_window<P: Preset>(
-    state: &mut impl PostGloasBeaconState<P>,
-) -> Result<()> {
+fn process_ptc_window<P: Preset>(state: &mut impl PostGloasBeaconState<P>) -> Result<()> {
     let mut ptc_window = state.ptc_window().into_iter().collect::<Vec<_>>();
     let last_epoch_start = ptc_window.len().try_sub(P::SlotsPerEpoch::USIZE)?;
 
@@ -233,7 +257,7 @@ pub(super) fn process_ptc_window<P: Preset>(
     Ok(())
 }
 
-pub(super) fn process_builder_pending_payments<P: Preset>(
+fn process_builder_pending_payments<P: Preset>(
     state: &mut impl PostGloasBeaconState<P>,
 ) -> Result<()> {
     let quorum = get_builder_payment_quorum_threshold(state)?;
@@ -265,9 +289,7 @@ pub(super) fn process_builder_pending_payments<P: Preset>(
     Ok(())
 }
 
-pub(super) fn process_historical_summaries_update<P: Preset>(
-    state: &mut BeaconState<P>,
-) -> Result<()> {
+fn process_historical_summaries_update<P: Preset>(state: &mut BeaconState<P>) -> Result<()> {
     let next_epoch = get_next_epoch(state)?;
 
     // > Set historical block root accumulator.
