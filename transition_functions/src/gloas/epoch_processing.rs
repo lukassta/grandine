@@ -727,9 +727,11 @@ mod spec_tests {
 
 /// Vectors generated from `consensus-specs` for the epoch processing EIP-8321 changes.
 ///
-/// Only `pending_deposits` is covered here: it is the category whose behaviour the EIP alters,
-/// through `apply_pending_deposit`. The rest of epoch processing is exercised by the EIP's
-/// `sanity/blocks` and `finality` vectors, which run full epoch transitions.
+/// `pending_deposits` is the category whose behaviour the EIP alters, through
+/// `apply_pending_deposit`. `pending_randao_commitments` is covered in `hash_chain_randao`.
+/// The rest of epoch processing is Gloas's, so rather than repeat the sub-transition runners
+/// the Gloas fixtures use, every case is run through the whole epoch transition, which the
+/// `pre_epoch`/`post_epoch` states that each case ships make possible.
 ///
 /// See `test-vectors/README.md` for where the fixtures come from.
 #[cfg(all(test, feature = "eip8321"))]
@@ -757,6 +759,37 @@ mod eip8321_spec_tests {
 
         let result = process_pending_deposits(&preset::default_config(), &pubkey_cache, &mut state)
             .map(|()| state);
+
+        if let Some(expected_post) = post_option {
+            let actual_post = result.expect("epoch processing should succeed");
+
+            assert_eq!(actual_post, expected_post);
+        } else {
+            result.expect_err("epoch processing should fail");
+        }
+    }
+
+    #[test_resources("consensus-spec-tests/tests/mainnet/eip8321/epoch_processing/*/*/*")]
+    fn mainnet_epoch_processing(case: Case) {
+        run_epoch_case::<Mainnet>(case);
+    }
+
+    #[test_resources("consensus-spec-tests/tests/minimal/eip8321/epoch_processing/*/*/*")]
+    fn minimal_epoch_processing(case: Case) {
+        run_epoch_case::<Minimal>(case);
+    }
+
+    fn run_epoch_case<P: Preset>(case: Case) {
+        let pubkey_cache = PubkeyCache::default();
+
+        // Some sub-transition test cases don't ship `pre_epoch`/`post_epoch` SSZ files because
+        // they aren't valid full-epoch transitions. Skip them, as the Gloas fixtures do.
+        let Some(mut state) = case.try_ssz_default::<BeaconState<P>>("pre_epoch") else {
+            return;
+        };
+        let post_option: Option<BeaconState<P>> = case.try_ssz_default("post_epoch");
+
+        let result = process_epoch(&P::default_config(), &pubkey_cache, &mut state).map(|()| state);
 
         if let Some(expected_post) = post_option {
             let actual_post = result.expect("epoch processing should succeed");

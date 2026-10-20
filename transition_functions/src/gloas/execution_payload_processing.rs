@@ -146,9 +146,10 @@ pub fn process_builder_exit_request<P: Preset>(
 }
 
 // The Gloas fixtures cannot be run with `eip8321` enabled: the feature changes the Gloas
-// containers' SSZ layouts, so the fixtures no longer deserialize. The EIP's own fixtures are
-// run in that configuration instead.
-#[cfg(all(test, not(feature = "eip8321")))]
+// containers' SSZ layouts, so the fixtures no longer deserialize. The EIP's own fixtures, which
+// cover the same operations, are run in that configuration instead. See
+// `test-vectors/README.md` for where they come from.
+#[cfg(test)]
 mod spec_tests {
     use spec_test_utils::{BlsSetting, Case};
     use ssz::SszReadDefault;
@@ -167,18 +168,42 @@ mod spec_tests {
             $operation_name: literal,
             $mainnet_glob: literal,
             $minimal_glob: literal,
+            $eip8321_mainnet_glob: literal,
+            $eip8321_minimal_glob: literal,
         ) => {
             mod $module_name {
                 use super::*;
 
-                #[test_resources($mainnet_glob)]
-                fn mainnet(case: Case) {
-                    run_processing_case_specialized::<Mainnet>(case);
+                // The globs are expanded at compile time, so the set that does not apply must be
+                // kept out of the expansion entirely rather than skipped at runtime.
+                #[cfg(not(feature = "eip8321"))]
+                mod fixtures {
+                    use super::*;
+
+                    #[test_resources($mainnet_glob)]
+                    fn mainnet(case: Case) {
+                        run_processing_case_specialized::<Mainnet>(case);
+                    }
+
+                    #[test_resources($minimal_glob)]
+                    fn minimal(case: Case) {
+                        run_processing_case_specialized::<Minimal>(case);
+                    }
                 }
 
-                #[test_resources($minimal_glob)]
-                fn minimal(case: Case) {
-                    run_processing_case_specialized::<Minimal>(case);
+                #[cfg(feature = "eip8321")]
+                mod fixtures {
+                    use super::*;
+
+                    #[test_resources($eip8321_mainnet_glob)]
+                    fn mainnet(case: Case) {
+                        run_processing_case_specialized::<Mainnet>(case);
+                    }
+
+                    #[test_resources($eip8321_minimal_glob)]
+                    fn minimal(case: Case) {
+                        run_processing_case_specialized::<Minimal>(case);
+                    }
                 }
 
                 fn run_processing_case_specialized<P: Preset>(case: Case) {
@@ -194,6 +219,8 @@ mod spec_tests {
         "deposit_request",
         "consensus-spec-tests/tests/mainnet/gloas/operations/deposit_request/*/*",
         "consensus-spec-tests/tests/minimal/gloas/operations/deposit_request/*/*",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/deposit_request/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/deposit_request/*/*",
     }
 
     processing_tests! {
@@ -202,6 +229,8 @@ mod spec_tests {
         "withdrawal_request",
         "consensus-spec-tests/tests/mainnet/gloas/operations/withdrawal_request/*/*",
         "consensus-spec-tests/tests/minimal/gloas/operations/withdrawal_request/*/*",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/withdrawal_request/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/withdrawal_request/*/*",
     }
 
     processing_tests! {
@@ -210,6 +239,8 @@ mod spec_tests {
         "consolidation_request",
         "consensus-spec-tests/tests/mainnet/gloas/operations/consolidation_request/*/*",
         "consensus-spec-tests/tests/minimal/gloas/operations/consolidation_request/*/*",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/consolidation_request/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/consolidation_request/*/*",
     }
 
     processing_tests! {
@@ -218,6 +249,8 @@ mod spec_tests {
         "builder_deposit_request",
         "consensus-spec-tests/tests/mainnet/gloas/operations/builder_deposit_request/*/*",
         "consensus-spec-tests/tests/minimal/gloas/operations/builder_deposit_request/*/*",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/builder_deposit_request/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/builder_deposit_request/*/*",
     }
 
     processing_tests! {
@@ -226,6 +259,8 @@ mod spec_tests {
         "builder_exit_request",
         "consensus-spec-tests/tests/mainnet/gloas/operations/builder_exit_request/*/*",
         "consensus-spec-tests/tests/minimal/gloas/operations/builder_exit_request/*/*",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/builder_exit_request/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/builder_exit_request/*/*",
     }
 
     fn run_processing_case<P: Preset, O: SszReadDefault>(

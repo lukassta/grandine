@@ -1443,9 +1443,11 @@ pub fn process_proposer_slashing<P: Preset>(
 }
 
 // The Gloas fixtures cannot be run with `eip8321` enabled: the feature changes the Gloas
-// containers' SSZ layouts, so the fixtures no longer deserialize. The EIP's own fixtures are
-// run in that configuration instead.
-#[cfg(all(test, not(feature = "eip8321")))]
+// containers' SSZ layouts, so the fixtures no longer deserialize. The EIP's own fixtures, which
+// cover the same operations, are run in that configuration instead. Both sets live in the same
+// module because the runners are identical; only the globs and the functions the EIP replaces
+// differ. See `test-vectors/README.md` for where the EIP's fixtures come from.
+#[cfg(test)]
 mod spec_tests {
     use core::fmt::Debug;
 
@@ -1468,18 +1470,42 @@ mod spec_tests {
             $operation_name: literal,
             $mainnet_glob: literal,
             $minimal_glob: literal,
+            $eip8321_mainnet_glob: literal,
+            $eip8321_minimal_glob: literal,
         ) => {
             mod $module_name {
                 use super::*;
 
-                #[test_resources($mainnet_glob)]
-                fn mainnet(case: Case) {
-                    run_processing_case_specialized::<Mainnet>(case);
+                // The globs are expanded at compile time, so the set that does not apply must be
+                // kept out of the expansion entirely rather than skipped at runtime.
+                #[cfg(not(feature = "eip8321"))]
+                mod fixtures {
+                    use super::*;
+
+                    #[test_resources($mainnet_glob)]
+                    fn mainnet(case: Case) {
+                        run_processing_case_specialized::<Mainnet>(case);
+                    }
+
+                    #[test_resources($minimal_glob)]
+                    fn minimal(case: Case) {
+                        run_processing_case_specialized::<Minimal>(case);
+                    }
                 }
 
-                #[test_resources($minimal_glob)]
-                fn minimal(case: Case) {
-                    run_processing_case_specialized::<Minimal>(case);
+                #[cfg(feature = "eip8321")]
+                mod fixtures {
+                    use super::*;
+
+                    #[test_resources($eip8321_mainnet_glob)]
+                    fn mainnet(case: Case) {
+                        run_processing_case_specialized::<Mainnet>(case);
+                    }
+
+                    #[test_resources($eip8321_minimal_glob)]
+                    fn minimal(case: Case) {
+                        run_processing_case_specialized::<Minimal>(case);
+                    }
                 }
 
                 fn run_processing_case_specialized<P: Preset>(case: Case) {
@@ -1496,18 +1522,41 @@ mod spec_tests {
             $operation_name: literal,
             $mainnet_glob: literal,
             $minimal_glob: literal,
+            $eip8321_mainnet_glob: literal,
+            $eip8321_minimal_glob: literal,
         ) => {
             mod $module_name {
                 use super::*;
 
-                #[test_resources($mainnet_glob)]
-                fn mainnet(case: Case) {
-                    run_validation_case_specialized::<Mainnet>(case);
+                // See the comment in `processing_tests`.
+                #[cfg(not(feature = "eip8321"))]
+                mod fixtures {
+                    use super::*;
+
+                    #[test_resources($mainnet_glob)]
+                    fn mainnet(case: Case) {
+                        run_validation_case_specialized::<Mainnet>(case);
+                    }
+
+                    #[test_resources($minimal_glob)]
+                    fn minimal(case: Case) {
+                        run_validation_case_specialized::<Minimal>(case);
+                    }
                 }
 
-                #[test_resources($minimal_glob)]
-                fn minimal(case: Case) {
-                    run_validation_case_specialized::<Minimal>(case);
+                #[cfg(feature = "eip8321")]
+                mod fixtures {
+                    use super::*;
+
+                    #[test_resources($eip8321_mainnet_glob)]
+                    fn mainnet(case: Case) {
+                        run_validation_case_specialized::<Mainnet>(case);
+                    }
+
+                    #[test_resources($eip8321_minimal_glob)]
+                    fn minimal(case: Case) {
+                        run_validation_case_specialized::<Minimal>(case);
+                    }
                 }
 
                 fn run_validation_case_specialized<P: Preset>(case: Case) {
@@ -1524,6 +1573,8 @@ mod spec_tests {
         "block",
         "consensus-spec-tests/tests/mainnet/gloas/operations/block_header/*/*",
         "consensus-spec-tests/tests/minimal/gloas/operations/block_header/*/*",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/block_header/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/block_header/*/*",
     }
 
     processing_tests! {
@@ -1541,23 +1592,20 @@ mod spec_tests {
         "proposer_slashing",
         "consensus-spec-tests/tests/mainnet/gloas/operations/proposer_slashing/*/*",
         "consensus-spec-tests/tests/minimal/gloas/operations/proposer_slashing/*/*",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/proposer_slashing/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/proposer_slashing/*/*",
     }
 
     processing_tests! {
         process_attester_slashing,
         |config, pubkey_cache, state, attester_slashing: AttesterSlashing<P>, _| {
-            electra::process_attester_slashing(
-                config,
-                pubkey_cache,
-                state,
-                &attester_slashing,
-                SingleVerifier,
-                NullSlotReport,
-            )
+            process_attester_slashing_under_test(config, pubkey_cache, state, &attester_slashing)
         },
         "attester_slashing",
         "consensus-spec-tests/tests/mainnet/gloas/operations/attester_slashing/*/*",
         "consensus-spec-tests/tests/minimal/gloas/operations/attester_slashing/*/*",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/attester_slashing/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/attester_slashing/*/*",
     }
 
     processing_tests! {
@@ -1574,6 +1622,8 @@ mod spec_tests {
         "attestation",
         "consensus-spec-tests/tests/mainnet/gloas/operations/attestation/*/*",
         "consensus-spec-tests/tests/minimal/gloas/operations/attestation/*/*",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/attestation/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/attestation/*/*",
     }
 
     processing_tests! {
@@ -1590,6 +1640,8 @@ mod spec_tests {
         "address_change",
         "consensus-spec-tests/tests/mainnet/gloas/operations/bls_to_execution_change/*/*",
         "consensus-spec-tests/tests/minimal/gloas/operations/bls_to_execution_change/*/*",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/bls_to_execution_change/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/bls_to_execution_change/*/*",
     }
 
     processing_tests! {
@@ -1606,6 +1658,8 @@ mod spec_tests {
         "voluntary_exit",
         "consensus-spec-tests/tests/mainnet/gloas/operations/voluntary_exit/*/*",
         "consensus-spec-tests/tests/minimal/gloas/operations/voluntary_exit/*/*",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/voluntary_exit/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/voluntary_exit/*/*",
     }
 
     processing_tests! {
@@ -1622,6 +1676,8 @@ mod spec_tests {
         "voluntary_exit",
         "consensus-spec-tests/tests/mainnet/gloas/operations/voluntary_exit_churn/*/*",
         "consensus-spec-tests/tests/minimal/gloas/operations/voluntary_exit_churn/*/*",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/voluntary_exit_churn/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/voluntary_exit_churn/*/*",
     }
 
     processing_tests! {
@@ -1639,6 +1695,8 @@ mod spec_tests {
         "sync_aggregate",
         "consensus-spec-tests/tests/mainnet/gloas/operations/sync_aggregate/*/*",
         "consensus-spec-tests/tests/minimal/gloas/operations/sync_aggregate/*/*",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/sync_aggregate/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/sync_aggregate/*/*",
     }
 
     processing_tests! {
@@ -1654,6 +1712,8 @@ mod spec_tests {
         "execution_payload_bid",
         "consensus-spec-tests/tests/mainnet/gloas/operations/execution_payload_bid/*/*",
         "consensus-spec-tests/tests/minimal/gloas/operations/execution_payload_bid/*/*",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/execution_payload_bid/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/execution_payload_bid/*/*",
     }
 
     processing_tests! {
@@ -1670,6 +1730,8 @@ mod spec_tests {
         "payload_attestation",
         "consensus-spec-tests/tests/mainnet/gloas/operations/payload_attestation/*/*",
         "consensus-spec-tests/tests/minimal/gloas/operations/payload_attestation/*/*",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/payload_attestation/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/payload_attestation/*/*",
     }
 
     processing_tests! {
@@ -1678,6 +1740,8 @@ mod spec_tests {
         "block",
         "consensus-spec-tests/tests/mainnet/gloas/operations/parent_execution_payload/*/*",
         "consensus-spec-tests/tests/minimal/gloas/operations/parent_execution_payload/*/*",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/parent_execution_payload/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/parent_execution_payload/*/*",
     }
 
     validation_tests! {
@@ -1688,6 +1752,8 @@ mod spec_tests {
         "proposer_slashing",
         "consensus-spec-tests/tests/mainnet/gloas/operations/proposer_slashing/*/*",
         "consensus-spec-tests/tests/minimal/gloas/operations/proposer_slashing/*/*",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/proposer_slashing/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/proposer_slashing/*/*",
     }
 
     validation_tests! {
@@ -1698,6 +1764,8 @@ mod spec_tests {
         "attester_slashing",
         "consensus-spec-tests/tests/mainnet/gloas/operations/attester_slashing/*/*",
         "consensus-spec-tests/tests/minimal/gloas/operations/attester_slashing/*/*",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/attester_slashing/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/attester_slashing/*/*",
     }
 
     validation_tests! {
@@ -1708,6 +1776,8 @@ mod spec_tests {
         "voluntary_exit",
         "consensus-spec-tests/tests/mainnet/gloas/operations/voluntary_exit/*/*",
         "consensus-spec-tests/tests/minimal/gloas/operations/voluntary_exit/*/*",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/voluntary_exit/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/voluntary_exit/*/*",
     }
 
     // TODO(feature/electra): comment this & run missing test script
@@ -1719,16 +1789,39 @@ mod spec_tests {
         "address_change",
         "consensus-spec-tests/tests/mainnet/gloas/operations/bls_to_execution_change/*/*",
         "consensus-spec-tests/tests/minimal/gloas/operations/bls_to_execution_change/*/*",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/bls_to_execution_change/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/bls_to_execution_change/*/*",
     }
 
-    #[test_resources("consensus-spec-tests/tests/mainnet/gloas/operations/withdrawals/*/*")]
-    fn mainnet_withdrawals(case: Case) {
-        run_withdrawals_case::<Mainnet>(case);
+    // See the comment in `processing_tests` for why the two sets of globs are split by feature.
+    #[cfg(not(feature = "eip8321"))]
+    mod withdrawals {
+        use super::*;
+
+        #[test_resources("consensus-spec-tests/tests/mainnet/gloas/operations/withdrawals/*/*")]
+        fn mainnet(case: Case) {
+            run_withdrawals_case::<Mainnet>(case);
+        }
+
+        #[test_resources("consensus-spec-tests/tests/minimal/gloas/operations/withdrawals/*/*")]
+        fn minimal(case: Case) {
+            run_withdrawals_case::<Minimal>(case);
+        }
     }
 
-    #[test_resources("consensus-spec-tests/tests/minimal/gloas/operations/withdrawals/*/*")]
-    fn minimal_withdrawals(case: Case) {
-        run_withdrawals_case::<Minimal>(case);
+    #[cfg(feature = "eip8321")]
+    mod withdrawals {
+        use super::*;
+
+        #[test_resources("consensus-spec-tests/tests/mainnet/eip8321/operations/withdrawals/*/*")]
+        fn mainnet(case: Case) {
+            run_withdrawals_case::<Mainnet>(case);
+        }
+
+        #[test_resources("consensus-spec-tests/tests/minimal/eip8321/operations/withdrawals/*/*")]
+        fn minimal(case: Case) {
+            run_withdrawals_case::<Minimal>(case);
+        }
     }
 
     fn config<P: Preset>(state: &GloasBeaconState<P>) -> Config {
@@ -1801,6 +1894,46 @@ mod spec_tests {
         } else {
             result.expect_err("withdrawals processing should fail");
         }
+    }
+
+    /// The function the `attester_slashing` vectors exercise.
+    ///
+    /// EIP-8321 replaces Electra's `process_attester_slashing` with its own, which also discards
+    /// the slashed proposer's pending builder payments. The vectors have the same shape in both
+    /// configurations, so only the function under test differs.
+    #[cfg(not(feature = "eip8321"))]
+    fn process_attester_slashing_under_test<P: Preset>(
+        config: &Config,
+        pubkey_cache: &PubkeyCache,
+        state: &mut GloasBeaconState<P>,
+        attester_slashing: &AttesterSlashing<P>,
+    ) -> Result<()> {
+        electra::process_attester_slashing(
+            config,
+            pubkey_cache,
+            state,
+            attester_slashing,
+            SingleVerifier,
+            NullSlotReport,
+        )
+    }
+
+    /// See the Gloas counterpart above.
+    #[cfg(feature = "eip8321")]
+    fn process_attester_slashing_under_test<P: Preset>(
+        config: &Config,
+        pubkey_cache: &PubkeyCache,
+        state: &mut GloasBeaconState<P>,
+        attester_slashing: &AttesterSlashing<P>,
+    ) -> Result<()> {
+        process_attester_slashing(
+            config,
+            pubkey_cache,
+            state,
+            attester_slashing,
+            SingleVerifier,
+            NullSlotReport,
+        )
     }
 
     fn process_attestation<P: Preset>(

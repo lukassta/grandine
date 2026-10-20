@@ -53,4 +53,6 @@ categories the tests actually run:
 
 The `fork_choice`, `networking`, `fast_confirmation` and `light_client` categories are
 deliberately excluded: no test consumes them, and they account for most of the generator's
-output. Including them is harmless but makes the archive several times larger.
+output. Including them is not harmless. `scripts/ci/consensus-spec-tests-coverage.rb` requires
+every file under `consensus-spec-tests/` to be matched by a glob in the codebase, so a packed
+category that no test reads fails CI. Pack a category only once something runs it.

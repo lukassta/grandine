@@ -8,6 +8,7 @@ CONSENSUS_SPEC_TESTS = 'consensus-spec-tests'
 
 CONSENSUS_IGNORED_GLOBS = %w[
   .version
+  .eip8321-version
   **/*.md
   **/*.py
   **/*.typed
