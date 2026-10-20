@@ -777,7 +777,7 @@ pub fn apply_parent_execution_payload<P: Preset>(
         P::MaxBuilderExitRequestsPerPayload::USIZE,
     )?;
 
-    let parent_bid = state.latest_execution_payload_bid().clone();
+    let parent_bid = state.latest_execution_payload_bid();
     let parent_slot = state.latest_block_header().slot;
     let parent_epoch = compute_epoch_at_slot::<P>(parent_slot);
 
@@ -840,7 +840,7 @@ fn settle_builder_payment<P: Preset>(
 pub fn process_execution_payload_bid<P: Preset>(
     config: &Config,
     pubkey_cache: &PubkeyCache,
-    state: &mut impl PostGloasBeaconState<P>,
+    state: &mut GloasBeaconState<P>,
     signed_bid: &SignedExecutionPayloadBid<P>,
 ) -> Result<()> {
     let ExecutionPayloadBid {
@@ -870,7 +870,7 @@ pub fn process_execution_payload_bid<P: Preset>(
     }
 
     // > Cache the signed execution payload bid
-    *state.latest_execution_payload_bid_mut() = signed_bid.message.clone();
+    state.latest_execution_payload_bid = signed_bid.message.clone();
 
     Ok(())
 }

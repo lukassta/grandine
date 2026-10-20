@@ -524,3 +524,21 @@ impl SignForAllForks for BuilderDepositMessage {
     const DOMAIN_TYPE: DomainType = DOMAIN_BUILDER_DEPOSIT;
     const SIGNATURE_KIND: SignatureKind = SignatureKind::BuilderDeposit;
 }
+
+impl<P: Preset> SignForSingleFork<P> for types::heze::containers::BeaconBlock<P> {
+    const DOMAIN_TYPE: DomainType = DOMAIN_BEACON_PROPOSER;
+    const SIGNATURE_KIND: SignatureKind = SignatureKind::Block;
+
+    fn epoch(&self) -> Epoch {
+        misc::compute_epoch_at_slot::<P>(self.slot)
+    }
+}
+
+impl<P: Preset> SignForSingleFork<P> for types::heze::containers::ExecutionPayloadBid<P> {
+    const DOMAIN_TYPE: DomainType = DOMAIN_BEACON_BUILDER;
+    const SIGNATURE_KIND: SignatureKind = SignatureKind::ExecutionPayloadBid;
+
+    fn epoch(&self) -> Epoch {
+        misc::compute_epoch_at_slot::<P>(self.slot)
+    }
+}

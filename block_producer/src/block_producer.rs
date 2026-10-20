@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{Context as _, Error as AnyhowError, Result, anyhow};
+use anyhow::{Context as _, Error as AnyhowError, Result, anyhow, bail};
 use bls::{
     AggregateSignature, PublicKeyBytes, SignatureBytes,
     traits::{Signature as _, SignatureBytes as _},
@@ -540,6 +540,12 @@ impl<P: Preset, W: Wait> BlockProducer<P, W> {
                 state,
                 exit,
             ),
+            BeaconState::Heze(state) => electra::validate_voluntary_exit(
+                &self.producer_context.chain_config,
+                &self.producer_context.pubkey_cache,
+                state,
+                exit,
+            ),
         };
 
         let outcome = match result {
@@ -973,6 +979,9 @@ impl<P: Preset, W: Wait> BlockBuildContext<P, W> {
         let phase = self.beacon_state.phase();
 
         let result = match phase {
+            Phase::Heze => {
+                bail!("Heze proposal requires the Heze proposer/Engine API integration")
+            }
             Phase::Phase0 => BeaconBlock::from(Hc::new(Phase0BeaconBlock {
                 slot,
                 proposer_index,
@@ -1772,6 +1781,12 @@ impl<P: Preset, W: Wait> BlockBuildContext<P, W> {
                     state,
                     *voluntary_exit,
                 ),
+                BeaconState::Heze(state) => electra::validate_voluntary_exit(
+                    &self.producer_context.chain_config,
+                    &self.producer_context.pubkey_cache,
+                    state,
+                    *voluntary_exit,
+                ),
             }
             .is_ok()
         });
@@ -1967,6 +1982,9 @@ impl<P: Preset, W: Wait> BlockBuildContext<P, W> {
         let prev_randao = accessors::get_randao_mix(state, epoch);
 
         let payload_attributes = match state {
+            BeaconState::Heze(_) => {
+                bail!("Heze payload attributes require inclusion-list transactions")
+            }
             BeaconState::Phase0(_) | BeaconState::Altair(_) => return Ok(None),
             BeaconState::Bellatrix(_) => PayloadAttributes::Bellatrix(PayloadAttributesV1 {
                 timestamp,

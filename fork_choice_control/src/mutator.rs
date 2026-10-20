@@ -3424,7 +3424,7 @@ where
                 block_slot,
                 block_root,
                 false,
-                block.message().payload_bid(),
+                block.message().payload_bid().as_ref(),
             );
         }
 

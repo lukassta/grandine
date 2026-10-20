@@ -329,3 +329,9 @@ endif
 .PHONY: test-heze
 test-heze:
 	bash scripts/test_heze.sh
+
+.PHONY: prepare-heze-dependencies
+prepare-heze-dependencies:
+	bash scripts/prepare_heze_dependencies.sh
+
+check build test minimal release: prepare-heze-dependencies

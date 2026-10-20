@@ -29,11 +29,11 @@ use types::{
     fulu::primitives::ColumnIndex,
     gloas::{
         containers::{
-            ExecutionPayloadBid, PayloadAttestationMessage, SignedExecutionPayloadBid,
-            SignedProposerPreferences,
+            PayloadAttestationMessage, SignedExecutionPayloadBid, SignedProposerPreferences,
         },
         primitives::{BuilderIndex, PayloadStatus},
     },
+    heze::bid_fields::ExecutionPayloadBidFields,
     nonstandard::Phase,
     phase0::{
         containers::{Checkpoint, ProposerSlashing, SignedVoluntaryExit},
@@ -248,7 +248,7 @@ impl<P: Preset> EventChannels<P> {
         slot: Slot,
         block_root: H256,
         execution_optimistic: bool,
-        bid: Option<&ExecutionPayloadBid<P>>,
+        bid: Option<&ExecutionPayloadBidFields<P>>,
     ) {
         features::log!(
             LogBlockProcessingTime,
@@ -548,7 +548,7 @@ impl<P: Preset> EventChannels<P> {
         slot: Slot,
         block_root: H256,
         execution_optimistic: bool,
-        bid: Option<&ExecutionPayloadBid<P>>,
+        bid: Option<&ExecutionPayloadBidFields<P>>,
     ) -> Result<()> {
         if self.blocks.receiver_count() > 0 {
             let block_event = BlockEvent {

@@ -243,7 +243,7 @@ impl<S: Sync, P: Preset> FromRequest<S, Body> for EthJson<Box<AttesterSlashing<P
                 .extract()
                 .await
                 .map(|Json(slashing)| Self(Box::new(AttesterSlashing::Electra(slashing)))),
-            Phase::Gloas => request
+            Phase::Gloas | Phase::Heze => request
                 .extract()
                 .await
                 .map(|Json(slashing)| Self(Box::new(AttesterSlashing::Gloas(slashing)))),

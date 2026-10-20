@@ -4,6 +4,7 @@ set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$HOME/.cache/grandine-target}"
 export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-2}"
+bash scripts/prepare_heze_dependencies.sh
 case "${1:-all}" in
   all) filter=heze_ ;;
   minimal) filter=heze_minimal ;;

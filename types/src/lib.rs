@@ -102,6 +102,14 @@ pub mod gloas {
     mod spec_tests;
 }
 
+pub mod heze {
+    pub mod beacon_state;
+    pub mod bid_fields;
+    pub mod consts;
+    pub mod containers;
+    pub mod primitives;
+}
+
 pub use collections::{
     PayloadExpectedWithdrawals, PendingDeposits, ProposerLookahead, Ptc, PtcWindow, Validators,
 };

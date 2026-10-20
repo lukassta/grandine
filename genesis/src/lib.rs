@@ -62,7 +62,7 @@ use types::{
         primitives::{DepositIndex, ExecutionBlockHash, H256, UnixSeconds},
     },
     preset::Preset,
-    traits::{BeaconState as _, PostGloasBeaconState},
+    traits::BeaconState as _,
 };
 
 pub struct Incremental<'config, P: Preset> {
@@ -91,7 +91,19 @@ impl<'config, P: Preset> Incremental<'config, P> {
             ..ExecutionPayloadBid::default()
         };
 
+        let heze_execution_payload_bid = types::heze::containers::ExecutionPayloadBid::<P> {
+            execution_requests_root: ExecutionRequests::<P>::default().hash_tree_root(),
+            ..Default::default()
+        };
         let body_root = match phase {
+            Phase::Heze => types::heze::containers::BeaconBlockBody::<P> {
+                signed_execution_payload_bid: types::heze::containers::SignedExecutionPayloadBid {
+                    message: heze_execution_payload_bid.clone(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }
+            .hash_tree_root(),
             Phase::Phase0 => Phase0BeaconBlockBody::<P>::default().hash_tree_root(),
             Phase::Altair => AltairBeaconBlockBody::<P>::default().hash_tree_root(),
             Phase::Bellatrix => BellatrixBeaconBlockBody::<P>::default().hash_tree_root(),
@@ -116,6 +128,14 @@ impl<'config, P: Preset> Incremental<'config, P> {
         };
 
         let beacon_state = match phase {
+            Phase::Heze => types::heze::beacon_state::BeaconState {
+                slot,
+                fork,
+                latest_block_header,
+                latest_execution_payload_bid: heze_execution_payload_bid,
+                ..Default::default()
+            }
+            .into(),
             Phase::Phase0 => Phase0BeaconState {
                 slot,
                 fork,
@@ -379,10 +399,24 @@ enum GenesisTriggerError {
 /// <https://github.com/ethereum/consensus-specs/blob/2fa396f67df35df236b6aa6fe714a59ee1032dc8/specs/phase0/beacon-chain.md#genesis-block>
 #[must_use]
 pub fn beacon_block<P: Preset>(genesis_state: &BeaconState<P>) -> SignedBeaconBlock<P> {
-    let execution_payload_bid = genesis_state
-        .post_gloas()
-        .map(PostGloasBeaconState::latest_execution_payload_bid)
-        .cloned();
+    if let BeaconState::Heze(state) = genesis_state {
+        return BeaconBlock::from(Hc::new(types::heze::containers::BeaconBlock {
+            body: types::heze::containers::BeaconBlockBody {
+                signed_execution_payload_bid: types::heze::containers::SignedExecutionPayloadBid {
+                    message: state.latest_execution_payload_bid.clone(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        }))
+        .with_state_root(genesis_state.hash_tree_root())
+        .with_zero_signature();
+    }
+    let execution_payload_bid = match genesis_state {
+        BeaconState::Gloas(state) => Some(state.latest_execution_payload_bid.clone()),
+        _ => None,
+    };
     beacon_block_internal(
         genesis_state.phase(),
         genesis_state.hash_tree_root(),
@@ -401,6 +435,7 @@ fn beacon_block_internal<P: Preset>(
 
     // Note that `BeaconBlock.body.eth1_data` is not set to `genesis_state.eth1_data()`.
     match phase {
+        Phase::Heze => BeaconBlock::from(Hc::new(types::heze::containers::BeaconBlock::default())),
         Phase::Phase0 => BeaconBlock::from(Hc::new(Phase0BeaconBlock::default())),
         Phase::Altair => BeaconBlock::from(Hc::new(AltairBeaconBlock::default())),
         Phase::Bellatrix => BeaconBlock::from(Hc::new(BellatrixBeaconBlock::default())),

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+bash "$(dirname "$0")/../prepare_heze_dependencies.sh"
+
 # An array lets us have comments between options without abusing backticks.
 options=(
     # Check integration tests and benchmarks as well.

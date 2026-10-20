@@ -1248,3 +1248,80 @@ mod spec_tests {
         assert_eq!(actual_post, expected_post);
     }
 }
+
+/// Neutral Heze scaffold upgrade. Feature-specific changes are added in the next commit.
+pub fn upgrade_to_heze<P: Preset>(
+    config: &Config,
+    pre: GloasBeaconState<P>,
+) -> Result<types::heze::beacon_state::BeaconState<P>> {
+    let epoch = accessors::get_current_epoch(&pre);
+    let bid = pre.latest_execution_payload_bid;
+    let latest_execution_payload_bid = types::heze::containers::ExecutionPayloadBid {
+        parent_block_hash: bid.parent_block_hash,
+        parent_block_root: bid.parent_block_root,
+        block_hash: bid.block_hash,
+        prev_randao: bid.prev_randao,
+        fee_recipient: bid.fee_recipient,
+        gas_limit: bid.gas_limit,
+        builder_index: bid.builder_index,
+        slot: bid.slot,
+        value: bid.value,
+        execution_payment: bid.execution_payment,
+        blob_kzg_commitments: bid.blob_kzg_commitments,
+        execution_requests_root: bid.execution_requests_root,
+        phantom: bid.phantom,
+    };
+    Ok(types::heze::beacon_state::BeaconState {
+        genesis_time: pre.genesis_time,
+        genesis_validators_root: pre.genesis_validators_root,
+        slot: pre.slot,
+        fork: Fork {
+            previous_version: pre.fork.current_version,
+            current_version: config.heze_fork_version,
+            epoch,
+        },
+        latest_block_header: pre.latest_block_header,
+        block_roots: pre.block_roots,
+        state_roots: pre.state_roots,
+        historical_roots: pre.historical_roots,
+        eth1_data: pre.eth1_data,
+        eth1_data_votes: pre.eth1_data_votes,
+        eth1_deposit_index: pre.eth1_deposit_index,
+        validators: pre.validators,
+        balances: pre.balances,
+        randao_mixes: pre.randao_mixes,
+        slashings: pre.slashings,
+        previous_epoch_participation: pre.previous_epoch_participation,
+        current_epoch_participation: pre.current_epoch_participation,
+        justification_bits: pre.justification_bits,
+        previous_justified_checkpoint: pre.previous_justified_checkpoint,
+        current_justified_checkpoint: pre.current_justified_checkpoint,
+        finalized_checkpoint: pre.finalized_checkpoint,
+        inactivity_scores: pre.inactivity_scores,
+        current_sync_committee: pre.current_sync_committee,
+        next_sync_committee: pre.next_sync_committee,
+        latest_block_hash: pre.latest_block_hash,
+        next_withdrawal_index: pre.next_withdrawal_index,
+        next_withdrawal_validator_index: pre.next_withdrawal_validator_index,
+        historical_summaries: pre.historical_summaries,
+        deposit_requests_start_index: pre.deposit_requests_start_index,
+        deposit_balance_to_consume: pre.deposit_balance_to_consume,
+        exit_balance_to_consume: pre.exit_balance_to_consume,
+        earliest_exit_epoch: pre.earliest_exit_epoch,
+        consolidation_balance_to_consume: pre.consolidation_balance_to_consume,
+        earliest_consolidation_epoch: pre.earliest_consolidation_epoch,
+        pending_deposits: pre.pending_deposits,
+        pending_partial_withdrawals: pre.pending_partial_withdrawals,
+        pending_consolidations: pre.pending_consolidations,
+        proposer_lookahead: pre.proposer_lookahead,
+        builders: pre.builders,
+        next_withdrawal_builder_index: pre.next_withdrawal_builder_index,
+        execution_payload_availability: pre.execution_payload_availability,
+        builder_pending_payments: pre.builder_pending_payments,
+        builder_pending_withdrawals: pre.builder_pending_withdrawals,
+        latest_execution_payload_bid,
+        payload_expected_withdrawals: pre.payload_expected_withdrawals,
+        ptc_window: pre.ptc_window,
+        cache: pre.cache,
+    })
+}

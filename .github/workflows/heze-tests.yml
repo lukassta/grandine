@@ -5,6 +5,9 @@ on:
     paths:
       - '.github/workflows/heze-tests.yml'
       - 'scripts/test_heze.sh'
+      - 'scripts/prepare_heze_dependencies.sh'
+      - 'patches/**'
+      - 'fork_choice_store/**'
       - 'test-vectors/**'
       - 'transition_functions/**'
       - 'helper_functions/**'
@@ -41,6 +44,8 @@ jobs:
           persist-credentials: false
       - name: Check out Cargo submodules
         run: git submodule update --init --recursive dedicated_executor eth2_libp2p
+      - name: Prepare the consensus-only Heze dependency patch
+        run: bash scripts/prepare_heze_dependencies.sh
       - name: Install native build dependencies
         run: |
           sudo apt-get update

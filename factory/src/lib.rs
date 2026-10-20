@@ -298,7 +298,7 @@ pub fn execution_payload_envelope<P: Preset>(
         .message()
         .body()
         .with_payload_bid()
-        .map(|body| &body.signed_execution_payload_bid().message)
+        .map(|body| body.signed_execution_payload_bid().message)
     else {
         bail!("block should be post-Gloas");
     };
@@ -518,6 +518,9 @@ pub fn execution_payload<P: Preset>(
         .try_into()?;
 
     let execution_payload = match config.phase_at_slot::<P>(slot) {
+        Phase::Heze => {
+            bail!("Heze payload construction requires the Heze execution-engine interface")
+        }
         Phase::Phase0 | Phase::Altair => bail!("slot should be post-Bellatrix"),
         Phase::Bellatrix => BellatrixExecutionPayload {
             parent_hash,
@@ -648,6 +651,9 @@ fn block_with_parent_payload<P: Preset>(
         .map(|state| signed_execution_payload_bid(state, extend_parent_payload));
 
     let without_state_root = match advanced_state.phase() {
+        Phase::Heze => {
+            bail!("use Heze block types and the FOCIL bid when constructing a Heze block")
+        }
         Phase::Phase0 => BeaconBlock::from(Hc::new(Phase0BeaconBlock {
             slot,
             proposer_index,

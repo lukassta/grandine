@@ -3622,7 +3622,7 @@ impl<P: Preset, S: Storage<P>> Store<P, S> {
                 .message()
                 .body()
                 .with_payload_bid()
-                .map(|body| body.signed_execution_payload_bid().blob_kzg_commitments())
+                .map(traits::BlockBodyWithPayloadBid::payload_bid_commitments)
                 .ok_or_else(|| Error::DataColumnSidecarBlockWithoutPayloadBid {
                     data_column_sidecar: data_column_sidecar.clone_arc(),
                 })?
@@ -3988,7 +3988,7 @@ impl<P: Preset, S: Storage<P>> Store<P, S> {
             .message()
             .body()
             .with_payload_bid()
-            .map(|body| &body.signed_execution_payload_bid().message)
+            .map(|body| body.signed_execution_payload_bid().message)
         else {
             return Err(Error::PayloadEnvelopeInvalidBlock {
                 payload_envelope: envelope,

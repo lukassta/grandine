@@ -48,7 +48,7 @@ pub enum SignedBuilderBid<P: Preset> {
 impl<P: Preset> SszSize for SignedBuilderBid<P> {
     // The const parameter should be `Self::VARIANT_COUNT`, but `Self` refers to a generic type.
     // Type parameters cannot be used in `const` contexts until `generic_const_exprs` is stable.
-    const SIZE: Size = Size::for_untagged_union::<{ Phase::CARDINALITY - 3 }>([
+    const SIZE: Size = Size::for_untagged_union::<{ Phase::CARDINALITY - 4 }>([
         BellatrixSignedBuilderBid::<P>::SIZE,
         CapellaSignedBuilderBid::<P>::SIZE,
         DenebSignedBuilderBid::<P>::SIZE,
@@ -75,7 +75,7 @@ impl<P: Preset> SszRead<Phase> for SignedBuilderBid<P> {
             Phase::Deneb => Self::Deneb(SszReadDefault::from_ssz_default(bytes)?),
             Phase::Electra => Self::Electra(SszReadDefault::from_ssz_default(bytes)?),
             Phase::Fulu => Self::Fulu(SszReadDefault::from_ssz_default(bytes)?),
-            Phase::Gloas => {
+            Phase::Gloas | Phase::Heze => {
                 return Err(ReadError::Custom {
                     message: "signed builder bid is not available in Gloas",
                 });
@@ -185,7 +185,7 @@ pub enum ExecutionPayloadAndBlobsBundle<P: Preset> {
 impl<P: Preset> SszSize for ExecutionPayloadAndBlobsBundle<P> {
     // The const parameter should be `Self::VARIANT_COUNT`, but `Self` refers to a generic type.
     // Type parameters cannot be used in `const` contexts until `generic_const_exprs` is stable.
-    const SIZE: Size = Size::for_untagged_union::<{ Phase::CARDINALITY - 5 }>([
+    const SIZE: Size = Size::for_untagged_union::<{ Phase::CARDINALITY - 6 }>([
         BellatrixExecutionPayload::<P>::SIZE,
         CapellaExecutionPayload::<P>::SIZE,
         DenebExecutionPayloadAndBlobsBundle::<P>::SIZE,
@@ -210,7 +210,7 @@ impl<P: Preset> SszRead<Phase> for ExecutionPayloadAndBlobsBundle<P> {
             Phase::Deneb => Self::Deneb(SszReadDefault::from_ssz_default(bytes)?),
             Phase::Electra => Self::Electra(SszReadDefault::from_ssz_default(bytes)?),
             Phase::Fulu => Self::Fulu(SszReadDefault::from_ssz_default(bytes)?),
-            Phase::Gloas => {
+            Phase::Gloas | Phase::Heze => {
                 return Err(ReadError::Custom {
                     message: "execution payload and blobs bundle is not available in Gloas",
                 });
