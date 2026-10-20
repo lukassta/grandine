@@ -731,8 +731,11 @@ pub fn blob_serve_range_slot<P: Preset>(
 
 #[must_use]
 pub fn block_serve_range_slot<P: Preset>(config: &Config, current_slot: Slot) -> Slot {
-    let epoch = compute_epoch_at_slot::<P>(current_slot)
-        .checked_sub(config.min_epochs_for_block_requests())
+    let current_epoch = compute_epoch_at_slot::<P>(current_slot);
+    let phase = config.phase_at_epoch(current_epoch);
+
+    let epoch = current_epoch
+        .checked_sub(config.min_epochs_for_block_requests(phase))
         .unwrap_or(GENESIS_EPOCH);
 
     compute_start_slot_at_epoch::<P>(epoch)
@@ -972,10 +975,7 @@ pub fn compute_balance_weighted_selection<P: Preset>(
             random_bytes[offset.try_add(1)?],
         ]));
 
-        let effective_balance = state
-            .validators()
-            .get(candidate_index)
-            .map(|validator| validator.effective_balance)?;
+        let effective_balance = state.validators().effective_balance(candidate_index)?;
 
         if effective_balance.try_mul(max_random_value)?
             >= P::MAX_EFFECTIVE_BALANCE_ELECTRA.try_mul(random_value)?

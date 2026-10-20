@@ -39,6 +39,16 @@ jobs:
             const release = await github.rest.repos.getLatestRelease({ owner: 'NethermindEth', repo: 'nethermind' });
             return release.data.tag_name;
 
+      - name: Get release label
+        uses: actions/github-script@v8
+        id: label
+        with:
+          result-encoding: string
+          script: |
+            // only plain X.Y.Z tags are stable, pre-release (e.g. 3.0.0-rc.0) and other tags are unstable
+            const stable = context.eventName == 'push' && /^refs\/tags\/\d+\.\d+\.\d+$/.test(context.ref);
+            return stable ? 'stable' : 'unstable';
+
       - name: Set matrix
         uses: actions/github-script@v8
         id: matrix-vars
@@ -90,7 +100,8 @@ jobs:
       commit: ${{ steps.git-vars.outputs.sha_short }}
       version: ${{ (github.event_name == 'push' && github.event.ref != 'refs/heads/develop' && github.ref_name) || steps.git-vars.outputs.sha_short }}
       nethermind: ${{ inputs.nethermind_version || steps.nethermind-tag.outputs.result }}
-      label: ${{ (github.event_name == 'push' && github.event.ref != 'refs/heads/develop' && 'stable') || 'unstable' }}
+      release: ${{ github.event_name == 'push' && github.event.ref != 'refs/heads/develop' }}
+      label: ${{ steps.label.outputs.result }}
       matrix: ${{ steps.matrix-vars.outputs.result }}
 
   build:
@@ -171,7 +182,6 @@ jobs:
     needs: [version]
     env:
       NETHERMIND_VERSION: ${{ needs.version.outputs.nethermind }}
-    if: needs.version.outputs.label == 'unstable'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -202,9 +212,10 @@ jobs:
     needs: [version, build, build_csharp_bindings]
     env:
       GRANDINE_VERSION: ${{ needs.version.outputs.version }}
-      GRANDINE_COMMIT: ${{ needs.version.outputs.commit }}
       NETHERMIND_VERSION: ${{ needs.version.outputs.nethermind }}
       DOCKER_LABEL: ${{ needs.version.outputs.label }}
+      DOCKER_SUFFIX: ${{ github.event_name == 'workflow_dispatch' && needs.version.outputs.commit || '' }}
+      DOCKER_RELEASE: ${{ needs.version.outputs.release }}
     if: always() && needs.version.result == 'success' && needs.build.result == 'success'
     steps:
       - uses: actions/checkout@v5
@@ -225,7 +236,7 @@ jobs:
           path: artifacts
 
       - name: Download csharp bindings
-        if: needs.version.outputs.label == 'unstable' && needs.build_csharp_bindings.result == 'success'
+        if: needs.build_csharp_bindings.result == 'success'
         uses: actions/download-artifact@v5
         with:
           name: plugin
@@ -244,7 +255,7 @@ jobs:
           mv ./artifacts/lib-linux-arm64/libgrandine.so ./target/aarch64-unknown-linux-gnu/compact/libgrandine.so
       
       - name: Move C# artifacts
-        if: needs.version.outputs.label == 'unstable' && needs.build_csharp_bindings.result == 'success'
+        if: needs.build_csharp_bindings.result == 'success'
         run: |
           mkdir -p ./bindings/csharp/Grandine.NethermindPlugin/bin/Release/net10.0/
           mv ./artifacts/Grandine.NethermindPlugin.dll ./bindings/csharp/Grandine.NethermindPlugin/bin/Release/net10.0/
@@ -261,32 +272,29 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build & push docker images (with nethermind integration)
-        if: needs.version.outputs.label == 'unstable' && needs.build_csharp_bindings.result == 'success'
-        env:
-          DOCKER_SUFFIX: ${{ github.event_name == 'workflow_dispatch' && env.GRANDINE_COMMIT || '' }}
+      - name: Build & push docker images
+        if: needs.build_csharp_bindings.result == 'success'
         run: |
           make docker \
             DOCKER_LABEL=${{ env.DOCKER_LABEL }} \
             DOCKER_SUFFIX=${{ env.DOCKER_SUFFIX }} \
+            DOCKER_RELEASE=${{ env.DOCKER_RELEASE }} \
             GRANDINE_VERSION=${{ env.GRANDINE_VERSION }} \
             NETHERMIND_VERSION=${{ env.NETHERMIND_VERSION }}
 
-      - name: Build & push docker images
-        if: needs.version.outputs.label == 'stable' || needs.build_csharp_bindings.result != 'success'
-        env: 
-          DOCKER_SUFFIX: ${{ github.event_name == 'workflow_dispatch' && env.GRANDINE_COMMIT || '' }}
+      - name: Build & push docker images (without nethermind)
+        if: needs.build_csharp_bindings.result != 'success'
         run: |
           make grandine-docker \
             DOCKER_LABEL=${{ env.DOCKER_LABEL }} \
             DOCKER_SUFFIX=${{ env.DOCKER_SUFFIX }} \
+            DOCKER_RELEASE=${{ env.DOCKER_RELEASE }} \
             GRANDINE_VERSION=${{ env.GRANDINE_VERSION }}
 
   pack_nethermind:
     name: Pack nethermind release with embedded grandine
     runs-on: ubuntu-latest
     needs: [version, build_csharp_bindings, build]
-    if: needs.version.outputs.label == 'unstable'
     strategy:
       matrix:
         include: ${{ fromJSON(needs.version.outputs.matrix) }}
@@ -327,7 +335,7 @@ jobs:
 
   publish:
     name: Draft release
-    if: always() && needs.version.outputs.label == 'stable'
+    if: always() && needs.version.outputs.release == 'true'
     needs: [build, pack_nethermind]
     runs-on: ubuntu-latest
     steps:

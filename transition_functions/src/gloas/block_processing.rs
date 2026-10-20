@@ -12,11 +12,10 @@ use helper_functions::{
         initialize_shuffled_indices,
     },
     electra::{
-        get_attesting_indices, is_fully_withdrawable_validator,
-        is_partially_withdrawable_validator, slash_validator,
+        get_attesting_indices, is_fully_withdrawable_validator, is_partially_withdrawable_validator,
     },
     error::SignatureKind,
-    gloas::get_indexed_attestation,
+    gloas::{get_indexed_attestation, slash_validator},
     misc::{
         builder_payment_index_for_current_epoch, builder_payment_index_for_previous_epoch,
         compute_epoch_at_slot, convert_builder_index_to_validator_index, get_max_effective_balance,
@@ -59,9 +58,9 @@ use types::{
     },
     preset::{BuilderPendingPaymentsLength, Preset, SlotsPerHistoricalRoot},
     traits::{
-        BeaconState, BlockBodyWithBlsToExecutionChanges, BlockBodyWithGloasAttestations,
-        BlockBodyWithGloasAttesterSlashings, BlockBodyWithPayloadAttestations,
-        PostGloasBeaconState,
+        AttesterSlashing, BeaconState, BlockBodyWithBlsToExecutionChanges,
+        BlockBodyWithGloasAttestations, BlockBodyWithGloasAttesterSlashings,
+        BlockBodyWithPayloadAttestations, PostGloasBeaconState,
     },
 };
 
@@ -296,12 +295,22 @@ fn get_builders_sweep_withdrawals_count<P: Preset>(
         }
 
         let builder = state.builders().get(builder_index)?;
-        if builder.withdrawable_epoch <= current_epoch && builder.balance > 0 {
+        let validator_index = convert_builder_index_to_validator_index(builder_index);
+
+        let withdrawn = withdrawals
+            .iter()
+            .filter(|withdrawal| withdrawal.validator_index == validator_index)
+            .map(|withdrawal| withdrawal.amount)
+            .sum();
+
+        let balance = builder.balance.saturating_sub(withdrawn);
+
+        if builder.withdrawable_epoch <= current_epoch && balance > 0 {
             withdrawals.push(Withdrawal {
                 index: *withdrawal_index,
-                validator_index: convert_builder_index_to_validator_index(builder_index),
+                validator_index,
                 address: builder.execution_address,
-                amount: builder.balance,
+                amount: balance,
             });
 
             *withdrawal_index = withdrawal_index
@@ -768,8 +777,6 @@ pub fn apply_parent_execution_payload<P: Preset>(
         P::MaxBuilderExitRequestsPerPayload::USIZE,
     )?;
 
-    process_execution_requests(config, pubkey_cache, state, execution_requests)?;
-
     let parent_bid = state.latest_execution_payload_bid().clone();
     let parent_slot = state.latest_block_header().slot;
     let parent_epoch = compute_epoch_at_slot::<P>(parent_slot);
@@ -789,6 +796,8 @@ pub fn apply_parent_execution_payload<P: Preset>(
                 builder_index: parent_bid.builder_index,
             })?;
     }
+
+    process_execution_requests(config, pubkey_cache, state, execution_requests)?;
 
     let slot: usize = parent_slot.try_into()?;
 
@@ -953,7 +962,7 @@ where
     }
 
     for attester_slashing in body.attester_slashings() {
-        electra::process_attester_slashing(
+        process_attester_slashing(
             config,
             pubkey_cache,
             state,
@@ -1279,31 +1288,7 @@ pub fn process_proposer_slashing<P: Preset>(
         verifier,
     )?;
 
-    // > Remove the BuilderPendingPayment corresponding to this proposal if it is
-    // > still in the 2-epoch window. Only clear it when the slashed validator is
-    // > the proposer associated with the payment; otherwise an unrelated same-slot
-    // > equivocation could grief an honest proposer's payment
-    let slot = proposer_slashing.signed_header_1.message.slot;
     let proposer_index = proposer_slashing.signed_header_1.message.proposer_index;
-    let proposal_epoch = compute_epoch_at_slot::<P>(slot);
-
-    let payment_index = if proposal_epoch == get_current_epoch(state) {
-        Some(builder_payment_index_for_current_epoch::<P>(slot)?)
-    } else if proposal_epoch == get_previous_epoch(state) {
-        Some(builder_payment_index_for_previous_epoch::<P>(slot))
-    } else {
-        None
-    };
-
-    if let Some(payment_index) = payment_index {
-        let payment = state
-            .builder_pending_payments_mut()
-            .mod_index_mut(payment_index);
-
-        if payment.proposer_index == proposer_index {
-            *payment = BuilderPendingPayment::default();
-        }
-    }
 
     slash_validator(
         config,
@@ -1313,6 +1298,36 @@ pub fn process_proposer_slashing<P: Preset>(
         SlashingKind::Proposer,
         slot_report,
     )
+}
+
+pub fn process_attester_slashing<P: Preset>(
+    config: &Config,
+    pubkey_cache: &PubkeyCache,
+    state: &mut impl PostGloasBeaconState<P>,
+    attester_slashing: &impl AttesterSlashing<P>,
+    verifier: impl Verifier,
+    mut slot_report: impl SlotReport,
+) -> Result<()> {
+    let slashable_indices = unphased::validate_attester_slashing_with_verifier(
+        config,
+        pubkey_cache,
+        state,
+        attester_slashing,
+        verifier,
+    )?;
+
+    for validator_index in slashable_indices {
+        slash_validator(
+            config,
+            state,
+            validator_index,
+            None,
+            SlashingKind::Attester,
+            &mut slot_report,
+        )?;
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1416,7 +1431,7 @@ mod spec_tests {
     processing_tests! {
         process_attester_slashing,
         |config, pubkey_cache, state, attester_slashing: AttesterSlashing<P>, _| {
-            electra::process_attester_slashing(
+            process_attester_slashing(
                 config,
                 pubkey_cache,
                 state,

@@ -45,7 +45,7 @@ use crate::{
         publish_execution_payload_bid, publish_execution_payload_envelope, state_committees,
         state_finality_checkpoints, state_fork, state_pending_consolidations,
         state_pending_deposits, state_pending_partial_withdrawals, state_proposer_lookahead,
-        state_randao, state_root, state_sync_committees, state_validator,
+        state_ptc, state_randao, state_root, state_sync_committees, state_validator,
         state_validator_identities, submit_payload_attestation_messages, submit_pool_attestations,
         submit_pool_attestations_v2, submit_pool_attester_slashing,
         submit_pool_attester_slashing_v2, submit_pool_bls_to_execution_change,
@@ -53,9 +53,8 @@ use crate::{
         sync_committee_rewards, validator_aggregate_attestation,
         validator_aggregate_attestation_v2, validator_attestation_data, validator_attester_duties,
         validator_beacon_committee_selections, validator_blinded_block, validator_block,
-        validator_block_v3, validator_block_v4, validator_execution_payload_bid,
-        validator_execution_payload_envelope, validator_liveness,
-        validator_payload_attestation_data, validator_prepare_beacon_proposer,
+        validator_block_v3, validator_block_v4, validator_execution_payload_envelope,
+        validator_liveness, validator_payload_attestation_data, validator_prepare_beacon_proposer,
         validator_proposer_duties, validator_proposer_duties_v2, validator_proposer_preferences,
         validator_ptc_duties, validator_publish_aggregate_and_proofs_v1,
         validator_publish_aggregate_and_proofs_v2, validator_publish_contributions_and_proofs,
@@ -388,6 +387,7 @@ fn eth_v1_beacon_routes<P: Preset, W: Wait>() -> Router<NormalState<P, W>> {
             "/eth/v1/beacon/states/{state_id}/sync_committees",
             get(state_sync_committees),
         )
+        .route("/eth/v1/beacon/states/{state_id}/ptc", get(state_ptc))
         .route(
             "/eth/v1/beacon/states/{state_id}/pending_consolidations",
             get(state_pending_consolidations),
@@ -632,10 +632,6 @@ fn eth_v1_validator_routes<P: Preset, W: Wait>(
         .route(
             "/eth/v1/validator/sync_committee_selections",
             post(validator_sync_committee_selections),
-        )
-        .route(
-            "/eth/v1/validator/execution_payload_bids/{slot}/{builder_index}",
-            get(validator_execution_payload_bid),
         )
         .route(
             "/eth/v1/validator/payload_attestation_data",

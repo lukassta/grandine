@@ -38,7 +38,7 @@ use futures::{
     stream::{FuturesOrdered, Stream, StreamExt as _},
 };
 use genesis::AnchorCheckpointProvider;
-use helper_functions::{accessors, misc};
+use helper_functions::{accessors, error::Error as AccessorError, misc};
 use http_api_utils::{BlockId, StateId};
 use itertools::{Either, Itertools as _, izip};
 use kzg_utils::eip_4844::compute_blob_kzg_proof;
@@ -57,8 +57,8 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use serde_with::{As, DisplayFromStr};
 use ssz::{
-    ByteVector, ContiguousList, ContiguousVector, DynamicList, Hc, Ssz, SszHash as _, SszList as _,
-    SszRead,
+    ByteVector, ContiguousList, ContiguousVector, DynamicList, Hc, ProgressiveList, Ssz,
+    SszHash as _, SszRead,
 };
 use std_ext::ArcExt as _;
 use tap::Pipe as _;
@@ -68,6 +68,7 @@ use tracing::instrument;
 use try_from_iterator::TryFromIterator as _;
 use typenum::Unsigned as _;
 use types::{
+    Ptc,
     altair::{
         consts::SyncCommitteeSubnetCount,
         containers::{
@@ -93,12 +94,10 @@ use types::{
     gloas::{
         consts::BUILDER_INDEX_SELF_BUILD,
         containers::{
-            ExecutionPayloadBid, ExecutionPayloadEnvelope, PayloadAttestation,
-            PayloadAttestationData, PayloadAttestationMessage, SignedExecutionPayloadBid,
-            SignedExecutionPayloadEnvelope, SignedExecutionPayloadEnvelopeContents,
-            SignedProposerPreferences,
+            ExecutionPayloadEnvelope, PayloadAttestation, PayloadAttestationData,
+            PayloadAttestationMessage, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
+            SignedExecutionPayloadEnvelopeContents, SignedProposerPreferences,
         },
-        primitives::BuilderIndex,
     },
     nonstandard::{
         BlockRewards, KzgProofs, Phase, RelativeEpoch, ValidationOutcome,
@@ -174,6 +173,12 @@ pub struct StateCommitteesQuery {
 #[serde(deny_unknown_fields)]
 pub struct StateSyncCommitteesQuery {
     epoch: Option<Epoch>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StatePtcQuery {
+    slot: Option<Slot>,
 }
 
 #[derive(Deserialize)]
@@ -393,6 +398,14 @@ struct StateSyncCommitteeResponse<'indices> {
     validators: Vec<ValidatorIndex>,
     #[serde(with = "As::<Vec<&[DisplayFromStr]>>")]
     validator_aggregates: Vec<&'indices [ValidatorIndex]>,
+}
+
+#[derive(Serialize, Ssz)]
+pub struct StatePtcResponse<P: Preset> {
+    #[serde(with = "serde_utils::string_or_native")]
+    slot: Slot,
+    #[serde(with = "serde_utils::string_or_native_sequence")]
+    validators: Ptc<P>,
 }
 
 #[derive(Serialize, Ssz)]
@@ -1067,19 +1080,13 @@ pub async fn state_pending_consolidations<P: Preset, W: Wait>(
     let version = state.phase();
     let state = state.post_electra().ok_or(Error::StatePreElectra)?;
 
-    // TODO(gloas): this probably needs to be modified a bit, so that
-    // json_or_ssz accepts dyn implementations too (anything, that can be
-    // serialized to json or ssz).
-    let pending_consolidations = ContiguousList::<_, P::PendingConsolidationsLimit>::try_from_iter(
-        state.pending_consolidations().iter().copied(),
+    Ok(
+        EthResponse::json_or_ssz(state.pending_consolidations(), &headers)?
+            .execution_optimistic(status.is_optimistic())
+            .finalized(finalized)
+            .version(version)
+            .into_response(),
     )
-    .map_err(AnyhowError::new)?;
-
-    Ok(EthResponse::json_or_ssz(pending_consolidations, &headers)?
-        .execution_optimistic(status.is_optimistic())
-        .finalized(finalized)
-        .version(version)
-        .into_response())
 }
 
 /// `GET /eth/v1/beacon/states/{state_id}/pending_deposits`
@@ -1099,16 +1106,13 @@ pub async fn state_pending_deposits<P: Preset, W: Wait>(
     let version = state.phase();
     let state = state.post_electra().ok_or(Error::StatePreElectra)?;
 
-    let pending_deposits = ContiguousList::<_, P::PendingDepositsLimit>::try_from_iter(
-        state.pending_deposits().iter().copied(),
+    Ok(
+        EthResponse::json_or_ssz(state.pending_deposits(), &headers)?
+            .execution_optimistic(status.is_optimistic())
+            .finalized(finalized)
+            .version(version)
+            .into_response(),
     )
-    .map_err(AnyhowError::new)?;
-
-    Ok(EthResponse::json_or_ssz(pending_deposits, &headers)?
-        .execution_optimistic(status.is_optimistic())
-        .finalized(finalized)
-        .version(version)
-        .into_response())
 }
 
 /// `GET /eth/v1/beacon/states/{state_id}/pending_partial_withdrawals`
@@ -1132,18 +1136,50 @@ pub async fn state_pending_partial_withdrawals<P: Preset, W: Wait>(
     let version = state.phase();
     let state = state.post_electra().ok_or(Error::StatePreElectra)?;
 
-    let pending_partial_withdrawals =
-        ContiguousList::<_, P::PendingPartialWithdrawalsLimit>::try_from_iter(
-            state.pending_partial_withdrawals().iter().copied(),
-        )
-        .map_err(AnyhowError::new)?;
-
     Ok(
-        EthResponse::json_or_ssz(pending_partial_withdrawals, &headers)?
+        EthResponse::json_or_ssz(state.pending_partial_withdrawals(), &headers)?
             .execution_optimistic(status.is_optimistic())
             .finalized(finalized)
             .version(version)
             .into_response(),
+    )
+}
+
+/// `GET /eth/v1/beacon/states/{state_id}/ptc`
+#[instrument(skip_all, level = "debug", name = "http_api::state_ptc")]
+pub async fn state_ptc<P: Preset, W: Wait>(
+    State(controller): State<ApiController<P, W>>,
+    State(anchor_checkpoint_provider): State<AnchorCheckpointProvider<P>>,
+    EthPath(state_id): EthPath<StateId>,
+    EthQuery(query): EthQuery<StatePtcQuery>,
+    headers: HeaderMap,
+) -> Result<EthResponse<StatePtcResponse<P>, (), JsonOrSsz>, Error> {
+    let WithStatus {
+        value: state,
+        status,
+        finalized,
+    } = state_id::state(&state_id, &controller, &anchor_checkpoint_provider)?;
+
+    if !state.is_post_gloas() {
+        return Err(Error::StatePreGloas);
+    }
+
+    let slot = query.slot.unwrap_or_else(|| state.slot());
+
+    let validators =
+        accessors::get_ptc(controller.chain_config(), &state, slot).map_err(|error| {
+            match error.downcast_ref::<AccessorError>() {
+                Some(AccessorError::PreGloasSlot { .. } | AccessorError::SlotOutOfRange) => {
+                    Error::InvalidSlot(error)
+                }
+                _ => Error::Internal(error),
+            }
+        })?;
+
+    Ok(
+        EthResponse::json_or_ssz(StatePtcResponse::<P> { slot, validators }, &headers)?
+            .execution_optimistic(status.is_optimistic())
+            .finalized(finalized),
     )
 }
 
@@ -1389,7 +1425,7 @@ pub async fn blinded_block<P: Preset, W: Wait>(
     let signed_blinded_block = match block {
         StoredBlock::Full(block) => Arc::unwrap_or_clone(block)
             .try_into()
-            .map_err(AnyhowError::new)?,
+            .map_err(Error::BlockNotBlindable)?,
         StoredBlock::Blinded(block) => Arc::unwrap_or_clone(block),
     };
 
@@ -2312,10 +2348,15 @@ pub async fn pool_attester_slashings_v2<P: Preset, W: Wait>(
                 .map(|slashing| AttesterSlashing::Phase0(slashing))
                 .collect()
         }
-        Phase::Electra | Phase::Fulu | Phase::Gloas => slashings
+        Phase::Electra | Phase::Fulu => slashings
             .into_iter()
             .filter_map(AttesterSlashing::post_electra)
             .map(|slashing| AttesterSlashing::Electra(slashing))
+            .collect(),
+        Phase::Gloas => slashings
+            .into_iter()
+            .filter_map(AttesterSlashing::post_gloas)
+            .map(|slashing| AttesterSlashing::Gloas(slashing))
             .collect(),
     };
 
@@ -2507,17 +2548,18 @@ pub async fn pool_payload_attestations<P: Preset, W: Wait>(
     State(controller): State<ApiController<P, W>>,
     State(payload_attestation_agg_pool): State<Arc<PayloadAttestationAggPool<P, W>>>,
     EthQuery(query): EthQuery<PoolPayloadAttestationsQuery>,
-) -> Result<EthResponse<Vec<PayloadAttestation<P>>>, Error> {
-    let slot = query.slot.unwrap_or_else(|| controller.slot());
-    let phase = controller.chain_config().phase_at_slot::<P>(slot);
-    let beacon_block_root = controller.head_block_root().value;
+    headers: HeaderMap,
+) -> Result<EthResponse<ProgressiveList<PayloadAttestation<P>>, (), JsonOrSsz>, Error> {
+    let PoolPayloadAttestationsQuery { slot } = query;
+    let phase = controller
+        .chain_config()
+        .phase_at_slot::<P>(slot.unwrap_or_else(|| controller.slot()));
 
     let data = payload_attestation_agg_pool
-        .aggregate_payload_attestations(slot, beacon_block_root)
-        .await?
-        .to_vec();
+        .payload_attestations(slot)
+        .await?;
 
-    Ok(EthResponse::json(data).version(phase))
+    Ok(EthResponse::json_or_ssz(data, &headers)?.version(phase))
 }
 
 /// `POST /eth/v1/beacon/pool/payload_attestations`
@@ -3695,12 +3737,6 @@ pub async fn validator_attestation_data<P: Preset, W: Wait>(
 
     let phase_at_slot = controller.chain_config().phase_at_slot::<P>(slot);
 
-    let committee_index = if phase_at_slot < Phase::Electra {
-        committee_index
-    } else {
-        0
-    };
-
     let WithStatus {
         value: head,
         status,
@@ -3799,6 +3835,21 @@ pub async fn validator_attestation_data<P: Preset, W: Wait>(
         );
     }
 
+    let index = if phase_at_slot < Phase::Electra {
+        committee_index
+    } else if phase_at_slot < Phase::Gloas || state.latest_block_header().slot == slot {
+        0
+    } else {
+        let block_slot = state.latest_block_header().slot;
+
+        let is_payload_full = controller
+            .snapshot()
+            .canonical_payload_block_roots(block_slot..block_slot.saturating_add(1))?
+            .contains(&block_root);
+
+        u64::from(is_payload_full)
+    };
+
     if state.slot() < slot {
         state = tokio::task::spawn_blocking(move || {
             controller.preprocessed_state_post_block_blocking(block_root, slot)
@@ -3814,7 +3865,7 @@ pub async fn validator_attestation_data<P: Preset, W: Wait>(
 
     let attestation_data = AttestationData {
         slot,
-        index: committee_index,
+        index,
         beacon_block_root: block_root,
         source: state.current_justified_checkpoint(),
         target,
@@ -3938,43 +3989,6 @@ pub async fn validator_sync_committee_contribution<P: Preset, W: Wait>(
         .await;
 
     Ok(EthResponse::json(data))
-}
-
-/// `GET /eth/v1/validator/execution_payload_bids/{slot}/{builder_index}`
-#[instrument(
-    skip_all,
-    level = "debug",
-    name = "http_api::validator_execution_payload_bid"
-)]
-pub async fn validator_execution_payload_bid<P: Preset, W: Wait>(
-    State(controller): State<ApiController<P, W>>,
-    EthPath(slot): EthPath<Slot>,
-    EthPath(builder_index): EthPath<BuilderIndex>,
-    headers: HeaderMap,
-) -> Result<EthResponse<ExecutionPayloadBid<P>, (), JsonOrSsz>, Error> {
-    let current_slot = controller.slot();
-    let beacon_state = if slot == current_slot {
-        controller.preprocessed_state_at_current_slot().await?
-    } else if slot == current_slot.saturating_add(1) {
-        controller.preprocessed_state_at_next_slot().await?
-    } else {
-        return Err(Error::UnexpectedSlot(slot));
-    };
-
-    // TODO(gloas): check builder exist with `builder_indices` cache in beacon state
-    let _ = beacon_state
-        .post_gloas()
-        .ok_or(Error::StatePreGloas)?
-        .builders()
-        .get(builder_index)
-        .map_err(|_| Error::InvalidBuilderIndex(builder_index))?;
-
-    let version = beacon_state.phase();
-    let signed_bid = controller
-        .get_payload_bid_from(slot, builder_index)
-        .ok_or(Error::ExecutionPayloadBidNotFound)?;
-
-    Ok(EthResponse::json_or_ssz(signed_bid.message, &headers)?.version(version))
 }
 
 /// `GET /eth/v1/validator/execution_payload_envelopes/{slot}/{beacon_block_root}`

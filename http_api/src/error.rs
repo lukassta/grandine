@@ -20,9 +20,9 @@ use tokio::task::JoinError;
 use tracing::instrument;
 use types::{
     altair::primitives::SubcommitteeIndex,
+    combined::TryBlindedFromBlockError,
     deneb::primitives::{BlobIndex, VersionedHash},
     fulu::primitives::ColumnIndex,
-    gloas::primitives::BuilderIndex,
     nonstandard::Phase,
     phase0::primitives::{Slot, ValidatorIndex},
 };
@@ -41,6 +41,8 @@ pub enum Error {
     BlockPreFulu,
     #[error("pre-gloas block has no execution payload envelope")]
     BlockPreGloas,
+    #[error(transparent)]
+    BlockNotBlindable(TryBlindedFromBlockError),
     #[error(transparent)]
     Canceled(#[from] Canceled),
     #[error("Content-Type header invalid")]
@@ -62,8 +64,6 @@ pub enum Error {
     EpochNotInSyncCommitteePeriod,
     #[error("epoch is out of range for the randao_mixes of the state")]
     EpochOutOfRangeForStateRandao,
-    #[error("execution payload bid not available for slot and builder")]
-    ExecutionPayloadBidNotFound,
     #[error("eth-blob-data-included header expected")]
     BlobDataIncludedHeaderMissing,
     #[error("execution payload envelope not found")]
@@ -106,8 +106,6 @@ pub enum Error {
     InvalidBlock(#[source] AnyhowError),
     #[error("invalid block root")]
     InvalidBlockRoot(#[source] AnyhowError),
-    #[error("builder index {0} does not correspond to a registered builder")]
-    InvalidBuilderIndex(BuilderIndex),
     #[error("invalid bytes body")]
     InvalidBytesBody(#[source] BytesRejection),
     #[error("invalid data column sidecar")]
@@ -208,8 +206,6 @@ pub enum Error {
     UnableToProduceBeaconBlock,
     #[error("unable to produce blinded block")]
     UnableToProduceBlindedBlock,
-    #[error("invalid slot: slot {0} is not the current slot or the next slot")]
-    UnexpectedSlot(Slot),
     #[error("validator not found")]
     ValidatorNotFound,
     #[error("validator {validator_index} is not in payload timeliness committee")]
@@ -280,7 +276,6 @@ impl Error {
             Self::InvalidBytesBody(rejection) => rejection.status(),
             Self::AttestationNotFound
             | Self::BlockNotFound
-            | Self::ExecutionPayloadBidNotFound
             | Self::ExecutionPayloadEnvelopeNotFound
             | Self::MatchingAttestationHeadBlockNotFound
             | Self::MatchingPayloadAttestationHeadBlockNotFound
@@ -289,7 +284,8 @@ impl Error {
             | Self::TargetStateNotFound
             | Self::ValidatorNotFound => StatusCode::NOT_FOUND,
             Self::BlockNotSeen => StatusCode::NO_CONTENT,
-            Self::BlockPreFulu
+            Self::BlockNotBlindable(_)
+            | Self::BlockPreFulu
             | Self::BlockPreGloas
             | Self::CommitteesAtSlotMismatch { .. }
             | Self::ContentTypeHeaderInvalid(_)
@@ -307,7 +303,6 @@ impl Error {
             | Self::InvalidBlobIndex(_)
             | Self::InvalidBlockId(_)
             | Self::InvalidBlockRoot(_)
-            | Self::InvalidBuilderIndex(_)
             | Self::InvalidColumnIndex(_)
             | Self::InvalidDataColumnSidecar(_)
             | Self::InvalidRequestConsensusHeader(_)
@@ -342,7 +337,6 @@ impl Error {
             | Self::StatePreGloas
             | Self::SubcommitteeIndexNotInRange { .. }
             | Self::UnableToPublishBlock
-            | Self::UnexpectedSlot(_)
             | Self::ValidatorNotInPTC { .. }
             | Self::VersionedHashNotInBlock { .. } => StatusCode::BAD_REQUEST,
             // | Self::ValidatorNotInCommittee { .. }

@@ -29,7 +29,8 @@ use types::{
     fulu::primitives::ColumnIndex,
     gloas::{
         containers::{
-            PayloadAttestationMessage, SignedExecutionPayloadBid, SignedProposerPreferences,
+            ExecutionPayloadBid, PayloadAttestationMessage, SignedExecutionPayloadBid,
+            SignedProposerPreferences,
         },
         primitives::{BuilderIndex, PayloadStatus},
     },
@@ -242,13 +243,21 @@ impl<P: Preset> EventChannels<P> {
         }
     }
 
-    pub fn send_block_event(&self, slot: Slot, block_root: H256, execution_optimistic: bool) {
+    pub fn send_block_event(
+        &self,
+        slot: Slot,
+        block_root: H256,
+        execution_optimistic: bool,
+        bid: Option<&ExecutionPayloadBid<P>>,
+    ) {
         features::log!(
             LogBlockProcessingTime,
             "send block event (slot: {slot}, block_root: {block_root:?}, optimistic: {execution_optimistic})"
         );
 
-        if let Err(error) = self.send_block_event_internal(slot, block_root, execution_optimistic) {
+        if let Err(error) =
+            self.send_block_event_internal(slot, block_root, execution_optimistic, bid)
+        {
             warn_with_peers!("unable to send block event: {error}");
         }
     }
@@ -436,6 +445,8 @@ impl<P: Preset> EventChannels<P> {
         payload_attributes: &PayloadAttributes<P>,
         parent_block_number: Option<ExecutionBlockNumber>,
         parent_block_hash: ExecutionBlockHash,
+        safe_block_hash: ExecutionBlockHash,
+        finalized_block_hash: ExecutionBlockHash,
     ) {
         if let Err(error) = self.send_payload_attributes_event_internal(
             phase,
@@ -445,6 +456,8 @@ impl<P: Preset> EventChannels<P> {
             payload_attributes,
             parent_block_number,
             parent_block_hash,
+            safe_block_hash,
+            finalized_block_hash,
         ) {
             warn_with_peers!("unable to send payload attributes event: {error}");
         }
@@ -535,12 +548,15 @@ impl<P: Preset> EventChannels<P> {
         slot: Slot,
         block_root: H256,
         execution_optimistic: bool,
+        bid: Option<&ExecutionPayloadBid<P>>,
     ) -> Result<()> {
         if self.blocks.receiver_count() > 0 {
             let block_event = BlockEvent {
                 slot,
                 block: block_root,
                 execution_optimistic,
+                builder_index: bid.map(|bid| bid.builder_index),
+                block_hash: bid.map(|bid| bid.block_hash),
             };
 
             let event = Event::Block(block_event);
@@ -780,8 +796,12 @@ impl<P: Preset> EventChannels<P> {
         payload_attributes: &PayloadAttributes<P>,
         parent_block_number: Option<ExecutionBlockNumber>,
         parent_block_hash: ExecutionBlockHash,
+        safe_block_hash: ExecutionBlockHash,
+        finalized_block_hash: ExecutionBlockHash,
     ) -> Result<()> {
         if self.payload_attributes.receiver_count() > 0 {
+            let post_gloas = phase >= Phase::Gloas;
+
             let payload_attributes_event = PayloadAttributesEvent {
                 version: phase,
                 data: PayloadAttributesEventData {
@@ -791,6 +811,8 @@ impl<P: Preset> EventChannels<P> {
                     payload_attributes: payload_attributes.clone().into(),
                     parent_block_number,
                     parent_block_hash,
+                    safe_block_hash: post_gloas.then_some(safe_block_hash),
+                    finalized_block_hash: post_gloas.then_some(finalized_block_hash),
                 },
             };
 
@@ -875,6 +897,13 @@ pub struct BlockEvent {
     pub slot: Slot,
     pub block: H256,
     pub execution_optimistic: bool,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        with = "serde_utils::string_or_native_option"
+    )]
+    pub builder_index: Option<BuilderIndex>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub block_hash: Option<ExecutionBlockHash>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -1132,6 +1161,10 @@ pub struct PayloadAttributesEventData {
     )]
     pub parent_block_number: Option<ExecutionBlockNumber>,
     pub parent_block_hash: ExecutionBlockHash,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub safe_block_hash: Option<ExecutionBlockHash>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub finalized_block_hash: Option<ExecutionBlockHash>,
     #[serde(with = "serde_utils::string_or_native")]
     pub proposer_index: ValidatorIndex,
     pub payload_attributes: CombinedPayloadAttributesEventData,
