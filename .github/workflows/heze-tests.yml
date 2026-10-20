@@ -1,0 +1,78 @@
+name: Heze reference vectors
+
+on:
+  push:
+    paths:
+      - '.github/workflows/heze-tests.yml'
+      - 'scripts/test_heze.sh'
+      - 'test-vectors/**'
+      - 'transition_functions/**'
+      - 'helper_functions/**'
+      - 'types/**'
+      - '**/Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: heze-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TARGET_DIR: ${{ github.workspace }}/target
+  CARGO_BUILD_JOBS: '2'
+  CARGO_PROFILE_RELEASE_DEBUG: '0'
+  CARGO_TERM_COLOR: always
+
+jobs:
+  heze:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Check out Cargo submodules
+        run: git submodule update --init --recursive dedicated_executor eth2_libp2p
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential clang libclang-dev cmake pkg-config libssl-dev \
+            protobuf-compiler libprotobuf-dev zlib1g-dev
+      - name: Install the pinned Rust toolchain
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup override set "$toolchain"
+      - name: Cache Cargo compilation
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: heze-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', '.github/workflows/heze-tests.yml') }}-${{ github.sha }}
+          restore-keys: |
+            heze-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', '.github/workflows/heze-tests.yml') }}-
+      - name: Verify reference fixture inventory
+        run: |
+          mkdir -p test-vectors/reports
+          bash scripts/test_heze.sh inventory 2>&1 | tee test-vectors/reports/heze-inventory.log
+      - name: Execute Heze state-transition vectors
+        run: bash scripts/test_heze.sh all 2>&1 | tee test-vectors/reports/heze-execution.log
+      - name: Upload per-case results and logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: heze-results-${{ github.sha }}
+          path: test-vectors/reports/
+          if-no-files-found: warn
+          retention-days: 30

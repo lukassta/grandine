@@ -24,3 +24,5 @@ exception.log
 
 # revmux round archives
 .revmux/tasks/
+
+/test-vectors/reports/

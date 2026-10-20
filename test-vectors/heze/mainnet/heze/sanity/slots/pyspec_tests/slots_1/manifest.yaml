@@ -1,0 +1,6 @@
+preset: mainnet
+fork: heze
+runner: sanity
+handler: slots
+suite: pyspec_tests
+case: slots_1

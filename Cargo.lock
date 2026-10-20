@@ -16985,6 +16985,7 @@ dependencies = [
  "duplicate",
  "enum-iterator",
  "execution_engine",
+ "fs-err",
  "hashing",
  "helper_functions",
  "itertools 0.14.0",

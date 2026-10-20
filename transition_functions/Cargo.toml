@@ -36,6 +36,7 @@ unwrap_none = { workspace = true }
 rayon = { workspace = true }
 
 [dev-dependencies]
+fs-err = { workspace = true }
 duplicate = { workspace = true }
 spec_test_utils = { workspace = true }
 test-generator = { workspace = true }
