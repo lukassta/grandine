@@ -127,6 +127,12 @@ pub struct Config {
     pub payload_attestation_due_bps: u64,
     #[serde(with = "serde_utils::string_or_native")]
     pub payload_due_bps: u64,
+    #[serde(with = "serde_utils::string_or_native")]
+    pub inclusion_list_due_bps: u64,
+    #[serde(with = "serde_utils::string_or_native")]
+    pub min_slots_for_inclusion_lists_requests: Slot,
+    #[serde(with = "serde_utils::string_or_native")]
+    pub max_transactions_bytes_per_inclusion_list: usize,
 
     // Validator cycle
     #[serde(with = "serde_utils::string_or_native")]
@@ -305,6 +311,9 @@ impl Default for Config {
             contribution_due_bps_gloas: 5000,
             payload_attestation_due_bps: 7500,
             payload_due_bps: 5000,
+            inclusion_list_due_bps: 7500,
+            min_slots_for_inclusion_lists_requests: 1,
+            max_transactions_bytes_per_inclusion_list: 8192,
 
             // Validator cycle
             churn_limit_quotient: nonzero!(1_u64 << 16),

@@ -519,7 +519,7 @@ pub fn execution_payload<P: Preset>(
 
     let execution_payload = match config.phase_at_slot::<P>(slot) {
         Phase::Heze => {
-            bail!("Heze payload construction requires the Heze execution-engine interface")
+            bail!("Heze payload construction requires the FOCIL execution-engine interface")
         }
         Phase::Phase0 | Phase::Altair => bail!("slot should be post-Bellatrix"),
         Phase::Bellatrix => BellatrixExecutionPayload {

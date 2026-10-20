@@ -171,7 +171,7 @@ pub fn custom_process_block<P: Preset>(
     )?;
 
     unphased::process_randao(config, pubkey_cache, state, &block.body, &mut verifier)?;
-    unphased::process_eth1_data(state, &block.body)?;
+    // EIP-8015: Heze has no eth1 vote.
 
     // > [Modified in Gloas:EIP7732]
     process_operations(
@@ -908,15 +908,6 @@ where
         + BlockBodyWithBlsToExecutionChanges<P>
         + BlockBodyWithPayloadAttestations<P>,
 {
-    // > [Modified in Fulu:EIP6110]
-    ensure!(
-        body.deposits().len_usize() == 0,
-        Error::<P>::DepositCountMismatch {
-            computed: 0,
-            in_block: body.deposits().len_usize().try_into()?,
-        },
-    );
-
     // > [New in Gloas:EIP7688] Progressive lists are unbounded at the SSZ level.
     // > Operation counts are validated during processing instead.
     ensure_operation_count::<P>(
@@ -1626,7 +1617,7 @@ mod spec_tests {
         processing_function: impl FnOnce(
             &Config,
             &PubkeyCache,
-            &mut HezeBeaconState<P>,
+            &mut GloasBeaconState<P>,
             O,
             &Meta,
         ) -> Result<()>,
@@ -1652,7 +1643,12 @@ mod spec_tests {
     fn run_validation_case<P: Preset, O: SszReadDefault, R: Debug>(
         case: Case,
         operation_name: &str,
-        validation_function: impl FnOnce(&Config, &PubkeyCache, &mut HezeBeaconState<P>, O) -> Result<R>,
+        validation_function: impl FnOnce(
+            &Config,
+            &PubkeyCache,
+            &mut GloasBeaconState<P>,
+            O,
+        ) -> Result<R>,
     ) {
         let pubkey_cache = PubkeyCache::default();
         let mut state = case.ssz_default("pre");
@@ -1670,7 +1666,7 @@ mod spec_tests {
     }
 
     fn run_withdrawals_case<P: Preset>(case: Case) {
-        let mut state = case.ssz_default::<HezeBeaconState<P>>("pre");
+        let mut state = case.ssz_default::<GloasBeaconState<P>>("pre");
         let post_option = case.try_ssz_default("post");
 
         let result = process_withdrawals(&mut state).map(|()| state);

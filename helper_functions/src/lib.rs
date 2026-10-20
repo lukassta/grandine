@@ -7,6 +7,7 @@ pub mod electra;
 pub mod error;
 pub mod fork;
 pub mod gloas;
+pub mod heze;
 pub mod misc;
 pub mod mutators;
 pub mod par_utils;

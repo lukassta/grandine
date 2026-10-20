@@ -980,7 +980,7 @@ impl<P: Preset, W: Wait> BlockBuildContext<P, W> {
 
         let result = match phase {
             Phase::Heze => {
-                bail!("Heze proposal requires the Heze proposer/Engine API integration")
+                bail!("Heze proposal requires the FOCIL proposer/Engine API integration")
             }
             Phase::Phase0 => BeaconBlock::from(Hc::new(Phase0BeaconBlock {
                 slot,

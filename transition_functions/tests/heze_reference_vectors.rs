@@ -15,7 +15,7 @@ use helper_functions::{
 };
 use pubkey_cache::PubkeyCache;
 use spec_test_utils::{BlsSetting, Case};
-use ssz::SszHash as _;
+use ssz::{SszHash as _, SszReadDefault as _};
 
 use std::{
     io::Write as _,
@@ -52,7 +52,12 @@ fn cases(preset: &str, kind: &str) -> Result<Vec<PathBuf>> {
         }
         Ok(())
     }
-    let dir = root().join(preset).join("heze/sanity").join(kind);
+    let category = if kind == "execution_payload_bid" {
+        "heze/operations"
+    } else {
+        "heze/sanity"
+    };
+    let dir = root().join(preset).join(category).join(kind);
     ensure!(dir.is_dir(), "MISSING_FIXTURES: {}", dir.display());
     let mut paths = vec![];
     visit(&dir, &mut paths)?;
@@ -64,17 +69,29 @@ fn bytes(case: Case<'_>, name: &str) -> Vec<u8> {
     case.bytes(format!("{name}.ssz_snappy"))
 }
 fn execute<P: Preset>(case: Case<'_>, kind: &str) -> Result<()> {
+    let phase = Phase::from_str("heze").context("Heze phase support")?;
+    execute_at_phase::<P>(case, kind, phase)
+}
+fn execute_at_phase<P: Preset>(case: Case<'_>, kind: &str, phase: Phase) -> Result<()> {
     let pre = bytes(case, "pre");
-    // This checks actual production fork support. There is no Gloas fallback,
-    // unconditional failure or should_panic assertion in this test target.
-    let phase = Phase::from_str("heze").context(
-        "HEZE_NOT_IMPLEMENTED: Grandine Phase has no Heze variant; a separate Heze phase, types and dispatch are required")?;
     let mut state =
         BeaconState::<P>::from_ssz_at_phase(phase, &pre).context("Heze pre-state SSZ")?;
     ensure!(state.phase() == phase, "decoded state has the wrong fork");
     let config = P::default_config().upgrade_once(phase, 0);
     let cache = PubkeyCache::default();
-    let outcome = if kind == "slots" {
+    let outcome = if kind == "execution_payload_bid" {
+        let bid = types::heze::containers::SignedExecutionPayloadBid::<P>::from_ssz_default(
+            bytes(case, "execution_payload_bid"),
+        )?;
+        ensure!(
+            bid.message.inclusion_list_bits.count_ones() > 0,
+            "expected nonzero FOCIL bits"
+        );
+        let BeaconState::Heze(pre) = &mut state else {
+            anyhow::bail!("expected Heze state")
+        };
+        transition_functions::heze::process_execution_payload_bid(&config, &cache, pre, &bid)
+    } else if kind == "slots" {
         let target = state
             .slot()
             .checked_add(case.yaml::<u64>("slots"))
@@ -226,4 +243,109 @@ fn heze_minimal_blocks() -> Result<()> {
 #[test]
 fn heze_mainnet_blocks() -> Result<()> {
     run::<Mainnet>("mainnet", "blocks")
+}
+
+#[test]
+fn heze_minimal_focil_bid() -> Result<()> {
+    run::<Minimal>("minimal", "execution_payload_bid")
+}
+#[test]
+fn heze_mainnet_focil_bid() -> Result<()> {
+    run::<Mainnet>("mainnet", "execution_payload_bid")
+}
+
+#[test]
+fn heze_focil_bid_bits_are_covered_by_builder_signature() -> Result<()> {
+    let paths = cases("minimal", "execution_payload_bid")?;
+    let path = paths.first().context("missing FOCIL builder-bid case")?;
+    let case = Case::from(path.to_str().context("fixture path")?);
+    let mut state =
+        types::heze::beacon_state::BeaconState::<Minimal>::from_ssz_default(bytes(case, "pre"))?;
+    let mut bid = types::heze::containers::SignedExecutionPayloadBid::<Minimal>::from_ssz_default(
+        bytes(case, "execution_payload_bid"),
+    )?;
+    let before = state.hash_tree_root();
+    bid.message
+        .inclusion_list_bits
+        .set(1, !bid.message.inclusion_list_bits[1]);
+    let config = Minimal::default_config().upgrade_once(Phase::Heze, 0);
+    let outcome = transition_functions::heze::process_execution_payload_bid(
+        &config,
+        &PubkeyCache::default(),
+        &mut state,
+        &bid,
+    );
+    ensure!(
+        outcome.is_err(),
+        "changing inclusion-list bits must invalidate builder signature"
+    );
+    ensure!(
+        state.hash_tree_root() == before,
+        "invalid bid changed consensus state"
+    );
+    Ok(())
+}
+
+#[test]
+fn heze_upgrade_preserves_gloas_and_initializes_focil_bits() -> Result<()> {
+    use types::gloas::beacon_state::BeaconState as GloasState;
+    let mut pre = GloasState::<Minimal>::default();
+    pre.fork.current_version = types::phase0::primitives::H32([7, 0, 0, 1]);
+    pre.latest_execution_payload_bid.block_hash = types::phase0::primitives::H256::repeat_byte(42);
+    let before = pre.hash_tree_root();
+    let config = Minimal::default_config();
+    let post = helper_functions::fork::upgrade_to_heze(&config, pre.clone())?;
+    ensure!(
+        post.fork.previous_version == pre.fork.current_version,
+        "wrong previous fork version"
+    );
+    ensure!(
+        post.fork.current_version == config.heze_fork_version,
+        "wrong Heze fork version"
+    );
+    ensure!(
+        post.latest_execution_payload_bid.block_hash == pre.latest_execution_payload_bid.block_hash,
+        "upgrade lost payload bid"
+    );
+    ensure!(
+        post.latest_execution_payload_bid
+            .inclusion_list_bits
+            .count_ones()
+            == 0,
+        "fork must initialize all inclusion-list bits to false"
+    );
+    ensure!(
+        pre.hash_tree_root() == before,
+        "upgrade altered the Gloas input"
+    );
+    pre.eth1_deposit_index = 1;
+    ensure!(
+        helper_functions::fork::upgrade_to_heze(&config, pre).is_err(),
+        "Heze upgrade must reject unprocessed legacy deposits"
+    );
+    Ok(())
+}
+
+#[test]
+fn heze_preserves_gloas_reference_transitions() -> Result<()> {
+    let dir =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../test-vectors/gloas/minimal/gloas/sanity");
+    for (kind, names) in [
+        ("slots", &["slots_1", "empty_epoch"][..]),
+        (
+            "blocks",
+            &[
+                "empty_block_transition",
+                "invalid_incorrect_state_root",
+                "invalid_all_zeroed_sig",
+            ][..],
+        ),
+    ] {
+        for name in names {
+            let path = dir.join(kind).join("pyspec_tests").join(name);
+            let case = Case::from(path.to_str().context("Gloas fixture path")?);
+            execute_at_phase::<Minimal>(case, kind, Phase::Gloas)?;
+        }
+    }
+    Ok(())
 }

@@ -73,7 +73,6 @@ pub fn process_epoch<P: Preset>(
     unphased::process_rewards_and_penalties(state, epoch_deltas)?;
     electra::process_registry_updates(config, state, summaries.as_mut_slice())?;
     electra::process_slashings::<_, ()>(state, summaries)?;
-    unphased::process_eth1_data_reset(state)?;
     process_pending_deposits(config, pubkey_cache, state)?;
     electra::process_pending_consolidations(state)?;
 

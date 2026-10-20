@@ -1,18 +1,13 @@
-//! Neutral Heze scaffold: inherited wire layout, before EIP feature changes.
-pub use crate::gloas::containers::{
-    Attestation, AttesterSlashing, BuilderPendingPayment, BuilderPendingWithdrawal,
-    ExecutionRequests, PayloadAttestation,
-};
+//! Heze FOCIL containers. Gloas SSZ types are deliberately unchanged.
 use crate::{
     altair::containers::SyncAggregate,
     bellatrix::primitives::Gas,
     capella::containers::SignedBlsToExecutionChange,
     deneb::primitives::KzgCommitment,
     gloas::primitives::BuilderIndex,
-    phase0::{
-        containers::{Deposit, Eth1Data, ProposerSlashing, SignedVoluntaryExit},
-        primitives::{ExecutionAddress, ExecutionBlockHash, Gwei, H256, Slot, ValidatorIndex},
-    },
+    heze::primitives::{InclusionListBits, Transactions},
+    phase0::containers::{Deposit, Eth1Data, ProposerSlashing, SignedVoluntaryExit},
+    phase0::primitives::{ExecutionAddress, ExecutionBlockHash, Gwei, H256, Slot, ValidatorIndex},
     preset::Preset,
 };
 use bls::SignatureBytes;
@@ -22,7 +17,25 @@ use ssz::{Hc, ProgressiveList, Ssz};
 
 #[derive(Clone, PartialEq, Eq, Debug, Default, Deserialize, Serialize, Ssz)]
 #[serde(bound = "", deny_unknown_fields)]
-#[ssz(stable(active = [1; 12]))]
+pub struct InclusionList<P: Preset> {
+    #[serde(with = "serde_utils::string_or_native")]
+    pub slot: Slot,
+    #[serde(with = "serde_utils::string_or_native")]
+    pub validator_index: ValidatorIndex,
+    pub dependent_root: H256,
+    pub transactions: Transactions<P>,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Default, Deserialize, Serialize, Ssz)]
+#[serde(bound = "", deny_unknown_fields)]
+pub struct SignedInclusionList<P: Preset> {
+    pub message: InclusionList<P>,
+    pub signature: SignatureBytes,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Default, Deserialize, Serialize, Ssz)]
+#[serde(bound = "", deny_unknown_fields)]
+#[ssz(stable(active = [1; 13]))]
 pub struct ExecutionPayloadBid<P: Preset> {
     pub parent_block_hash: ExecutionBlockHash,
     pub parent_block_root: H256,
@@ -41,6 +54,7 @@ pub struct ExecutionPayloadBid<P: Preset> {
     pub execution_payment: Gwei,
     pub blob_kzg_commitments: ProgressiveList<KzgCommitment>,
     pub execution_requests_root: H256,
+    pub inclusion_list_bits: InclusionListBits,
     #[ssz(skip)]
     #[serde(skip)]
     pub phantom: PhantomData<P>,
@@ -67,14 +81,19 @@ pub struct BeaconBlock<P: Preset> {
 
 #[derive(Clone, PartialEq, Eq, Debug, Default, Deserialize, Serialize, Ssz)]
 #[serde(bound = "", deny_unknown_fields)]
-#[ssz(stable(active = [1; 13]))]
+#[ssz(stable(active = [1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1]))]
 pub struct BeaconBlockBody<P: Preset> {
     pub randao_reveal: SignatureBytes,
+    // Legacy trait compatibility only; absent from Heze SSZ and JSON.
+    #[ssz(skip)]
+    #[serde(skip)]
     pub eth1_data: Eth1Data,
     pub graffiti: H256,
     pub proposer_slashings: ProgressiveList<ProposerSlashing>,
     pub attester_slashings: ProgressiveList<AttesterSlashing<P>>,
     pub attestations: ProgressiveList<Attestation<P>>,
+    #[ssz(skip)]
+    #[serde(skip)]
     pub deposits: ProgressiveList<Deposit>,
     pub voluntary_exits: ProgressiveList<SignedVoluntaryExit>,
     pub sync_aggregate: SyncAggregate<P>,
@@ -90,6 +109,11 @@ pub struct SignedBeaconBlock<P: Preset> {
     pub message: Hc<BeaconBlock<P>>,
     pub signature: SignatureBytes,
 }
+
+pub use crate::gloas::containers::{
+    Attestation, AttesterSlashing, BuilderPendingPayment, BuilderPendingWithdrawal,
+    ExecutionRequests, PayloadAttestation,
+};
 impl<P: Preset> SignedExecutionPayloadBid<P> {
     #[must_use]
     pub const fn blob_kzg_commitments(&self) -> &ProgressiveList<KzgCommitment> {

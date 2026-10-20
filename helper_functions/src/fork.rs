@@ -1249,11 +1249,15 @@ mod spec_tests {
     }
 }
 
-/// Neutral Heze scaffold upgrade. Feature-specific changes are added in the next commit.
+/// Upgrade from Gloas to the distinct Heze state schema.
 pub fn upgrade_to_heze<P: Preset>(
     config: &Config,
     pre: GloasBeaconState<P>,
 ) -> Result<types::heze::beacon_state::BeaconState<P>> {
+    anyhow::ensure!(
+        pre.eth1_deposit_index == pre.deposit_requests_start_index,
+        "legacy deposits must be fully processed before Heze"
+    );
     let epoch = accessors::get_current_epoch(&pre);
     let bid = pre.latest_execution_payload_bid;
     let latest_execution_payload_bid = types::heze::containers::ExecutionPayloadBid {
@@ -1270,6 +1274,7 @@ pub fn upgrade_to_heze<P: Preset>(
         blob_kzg_commitments: bid.blob_kzg_commitments,
         execution_requests_root: bid.execution_requests_root,
         phantom: bid.phantom,
+        inclusion_list_bits: BitVector::default(),
     };
     Ok(types::heze::beacon_state::BeaconState {
         genesis_time: pre.genesis_time,
@@ -1284,9 +1289,9 @@ pub fn upgrade_to_heze<P: Preset>(
         block_roots: pre.block_roots,
         state_roots: pre.state_roots,
         historical_roots: pre.historical_roots,
-        eth1_data: pre.eth1_data,
-        eth1_data_votes: pre.eth1_data_votes,
-        eth1_deposit_index: pre.eth1_deposit_index,
+        eth1_data: types::phase0::containers::Eth1Data::default(),
+        eth1_data_votes: PersistentList::default(),
+        eth1_deposit_index: Default::default(),
         validators: pre.validators,
         balances: pre.balances,
         randao_mixes: pre.randao_mixes,
@@ -1304,7 +1309,7 @@ pub fn upgrade_to_heze<P: Preset>(
         next_withdrawal_index: pre.next_withdrawal_index,
         next_withdrawal_validator_index: pre.next_withdrawal_validator_index,
         historical_summaries: pre.historical_summaries,
-        deposit_requests_start_index: pre.deposit_requests_start_index,
+        deposit_requests_start_index: Default::default(),
         deposit_balance_to_consume: pre.deposit_balance_to_consume,
         exit_balance_to_consume: pre.exit_balance_to_consume,
         earliest_exit_epoch: pre.earliest_exit_epoch,

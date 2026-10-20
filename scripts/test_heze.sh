@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Test-first baseline: failures remain failures until Heze is implemented.
+# Focused official Heze/Gloas vectors and FOCIL consensus regressions.
 set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$HOME/.cache/grandine-target}"
@@ -19,3 +19,12 @@ cargo test --locked --release \
   -p transition_functions -p bls -p kzg_utils \
   --features bls/blst,kzg_utils/blst \
   --test heze_reference_vectors "$filter" -- --nocapture
+
+if [[ "$filter" == heze_ ]]; then
+  cargo test --locked --release \
+    -p helper_functions -p bls -p kzg_utils \
+    --features bls/blst,kzg_utils/blst --test heze_focil
+  cargo test --locked --release \
+    -p fork_choice_store -p bls -p kzg_utils \
+    --features bls/blst,kzg_utils/blst --test heze_focil
+fi

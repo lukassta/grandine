@@ -31,7 +31,7 @@ use crate::{
 #[derive(Clone, Debug, Default, Derivative, Deserialize, Serialize, Ssz)]
 #[derivative(PartialEq, Eq)]
 #[serde(bound = "", deny_unknown_fields)]
-#[ssz(stable(active = [1; 46]))]
+#[ssz(stable(active = [1,1,1,1,1,1,1,1,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]))]
 pub struct BeaconState<P: Preset> {
     // > Versioning
     #[serde(with = "serde_utils::string_or_native")]
@@ -48,9 +48,15 @@ pub struct BeaconState<P: Preset> {
     pub historical_roots: HistoricalRoots<P>,
 
     // > Eth1
+    #[ssz(skip)]
+    #[serde(skip)]
     pub eth1_data: Eth1Data,
+    #[ssz(skip)]
+    #[serde(skip)]
     pub eth1_data_votes: Eth1DataVotes<P>,
-    #[serde(with = "serde_utils::string_or_native")]
+    // Legacy shared-trait storage; not a Heze consensus field.
+    #[serde(skip)]
+    #[ssz(skip)]
     pub eth1_deposit_index: DepositIndex,
 
     // > Registry
@@ -96,7 +102,9 @@ pub struct BeaconState<P: Preset> {
 
     // > Deep history valid from Capella onwards
     pub historical_summaries: HistoricalSummaries<P>,
-    #[serde(with = "serde_utils::string_or_native")]
+    // Legacy shared-trait storage; not a Heze consensus field.
+    #[serde(skip)]
+    #[ssz(skip)]
     pub deposit_requests_start_index: DepositIndex,
     #[serde(with = "serde_utils::string_or_native")]
     pub deposit_balance_to_consume: Gwei,

@@ -119,6 +119,12 @@ use crate::{
 // Parent root and parent payload presence of the first block of each segment.
 type BranchChildren = StdHashSet<(H256, PayloadPresence)>;
 
+#[derive(Clone, Copy)]
+enum InclusionListSatisfaction {
+    Optimistic,
+    Verified(bool),
+}
+
 #[derive(Default)]
 struct SeenGossipAttestations {
     attesters: BTreeMap<Epoch, BitVec>,
@@ -209,6 +215,8 @@ pub struct Store<P: Preset, S: Storage<P>> {
     // - Obtaining active balances from the justified state requires it to be in the right epoch.
     checkpoint_states: HashMap<Checkpoint, Arc<BeaconState<P>>>,
     payloads: HashSet<H256>,
+    inclusion_list_store: helper_functions::heze::InclusionListStore<P>,
+    payload_inclusion_list_satisfaction: HashMap<H256, InclusionListSatisfaction>,
     timely_payloads: HashSet<H256>,
     // This field is used to track which PTC members have cast a valid vote for a given block root.
     payload_vote: HashMap<H256, BitVector<P::PtcSize>>,
@@ -392,6 +400,8 @@ impl<P: Preset, S: Storage<P>> Store<P, S> {
             } },
             checkpoint_states: HashMap::unit(checkpoint, anchor_state),
             payloads: HashSet::new(),
+            inclusion_list_store: helper_functions::heze::InclusionListStore::default(),
+            payload_inclusion_list_satisfaction: HashMap::new(),
             timely_payloads: HashSet::new(),
             payload_vote: HashMap::new(),
             payload_timeliness_vote: HashMap::new(),
@@ -1058,6 +1068,14 @@ impl<P: Preset, S: Storage<P>> Store<P, S> {
             return false;
         }
 
+        if self
+            .chain_link(block_root)
+            .is_some_and(|link| link.block.phase() >= Phase::Heze)
+            && !self.is_payload_inclusion_list_satisfied(block_root)
+        {
+            return false;
+        }
+
         let proposer_root = self.proposer_boost_root;
 
         if proposer_root.is_zero()
@@ -1085,6 +1103,202 @@ impl<P: Preset, S: Storage<P>> Store<P, S> {
     // > Return whether the execution payload envelope for the beacon block with
     // > root ``root`` has been locally delivered and verified via
     // > ``on_execution_payload_envelope``.
+    /// FOCIL is a fork-choice constraint; an unsatisfied payload remains execution-valid.
+    pub fn is_payload_inclusion_list_satisfied(&self, block_root: H256) -> bool {
+        self.is_payload_verified(block_root)
+            && self
+                .payload_inclusion_list_satisfaction
+                .get(&block_root)
+                .is_some_and(|status| {
+                    matches!(
+                        status,
+                        InclusionListSatisfaction::Optimistic
+                            | InclusionListSatisfaction::Verified(true)
+                    )
+                })
+    }
+
+    /// Record the result delivered by the execution engine for this root only.
+    /// None represents `NOT_VALIDATED` and is optimistic; VALID supplies Some(result).
+    /// Do not recompute a VALID result after pruning inclusion lists.
+    pub fn record_payload_inclusion_list_satisfaction(
+        &mut self,
+        block_root: H256,
+        satisfied: Option<bool>,
+    ) -> Result<()> {
+        let link = self
+            .chain_link(block_root)
+            .ok_or_else(|| anyhow!("unknown payload block"))?;
+        ensure!(
+            link.block.phase() >= Phase::Heze,
+            "FOCIL result requires a Heze block"
+        );
+        if matches!(
+            self.payload_inclusion_list_satisfaction.get(&block_root),
+            Some(InclusionListSatisfaction::Verified(_))
+        ) {
+            return Ok(());
+        }
+        let status = satisfied.map_or(
+            InclusionListSatisfaction::Optimistic,
+            InclusionListSatisfaction::Verified,
+        );
+        self.payload_inclusion_list_satisfaction
+            .insert(block_root, status);
+        Ok(())
+    }
+
+    pub const fn inclusion_list_store(&self) -> &helper_functions::heze::InclusionListStore<P> {
+        &self.inclusion_list_store
+    }
+
+    /// Consensus handler. Arrival is precise milliseconds since the current slot started.
+    /// Validation completes before any inclusion-list storage mutation.
+    pub fn on_inclusion_list(
+        &mut self,
+        signed: types::heze::containers::SignedInclusionList<P>,
+        time_into_slot_ms: u64,
+    ) -> Result<()> {
+        let config = &self.chain_config;
+        ensure!(
+            config.phase_at_slot::<P>(self.slot()) >= Phase::Heze,
+            "inclusion lists are not active before Heze"
+        );
+        let message = &signed.message;
+        helper_functions::heze::validate_inclusion_list_bounds(
+            message,
+            self.slot(),
+            config.min_slots_for_inclusion_lists_requests,
+            config.max_transactions_bytes_per_inclusion_list,
+        )?;
+        let epoch = misc::compute_epoch_at_slot::<P>(message.slot);
+        let lookahead_epoch = epoch.saturating_sub(P::MinSeedLookahead::U64);
+        let lookahead_start = misc::compute_start_slot_at_epoch::<P>(lookahead_epoch);
+        let dependent = self
+            .chain_link(message.dependent_root)
+            .ok_or_else(|| anyhow!("unknown inclusion-list dependent root"))?;
+        ensure!(
+            dependent.slot() <= misc::compute_shuffling_dependent_slot::<P>(epoch),
+            "inclusion-list dependent block is too recent"
+        );
+        ensure!(
+            self.is_valid_dependent_root(dependent, lookahead_start),
+            "inclusion-list dependent root is not a possible shuffling root"
+        );
+        let state = self.state_cache.state_at_slot(
+            &self.pubkey_cache,
+            self,
+            message.dependent_root,
+            lookahead_start,
+        )?;
+        let committee = helper_functions::heze::get_inclusion_list_committee(&state, message.slot)?;
+        ensure!(
+            committee.contains(&message.validator_index),
+            "inclusion-list signer is not a committee member"
+        );
+        ensure!(
+            helper_functions::heze::is_valid_inclusion_list_signature(config, &state, &signed),
+            "invalid inclusion-list signature"
+        );
+        let slot_duration_ms = u64::try_from(config.slot_duration_ms.as_millis())?;
+        let due = slot_duration_ms
+            .checked_mul(config.inclusion_list_due_bps)
+            .ok_or_else(|| anyhow!("inclusion-list deadline overflow"))?
+            / BASIS_POINTS;
+        ensure!(
+            time_into_slot_ms < slot_duration_ms,
+            "arrival time exceeds the current slot"
+        );
+        let timely = message.slot == self.slot() && time_into_slot_ms < due;
+        self.inclusion_list_store
+            .process_inclusion_list(signed, timely);
+        Ok(())
+    }
+
+    /// Input to the EL's inclusion-list satisfaction check, rather than a transaction-membership test.
+    pub fn payload_inclusion_list_transactions(
+        &self,
+        block_root: H256,
+        only_timely: bool,
+    ) -> Result<Vec<types::gloas::primitives::Transaction<P>>> {
+        let link = self
+            .chain_link(block_root)
+            .ok_or_else(|| anyhow!("unknown payload block"))?;
+        ensure!(link.block.phase() >= Phase::Heze, "expected a Heze payload");
+        let slot = link
+            .slot()
+            .checked_sub(1)
+            .ok_or_else(|| anyhow!("genesis has no parent slot"))?;
+        let epoch = misc::compute_epoch_at_slot::<P>(slot);
+        let root = self
+            .shuffling_dependent_root(block_root, epoch)
+            .ok_or_else(|| anyhow!("missing shuffling dependent root"))?;
+        Ok(self
+            .inclusion_list_store
+            .get_inclusion_list_transactions(slot, root, only_timely))
+    }
+
+    /// Apply an already validated Heze envelope after querying the execution engine's
+    /// inclusion-list satisfaction result. A false result never invalidates the envelope.
+    /// None is reserved for an execution engine's `NOT_VALIDATED` response.
+    pub fn apply_heze_execution_payload_envelope(
+        &mut self,
+        envelope: Arc<SignedExecutionPayloadEnvelope<P>>,
+        is_before_deadline: bool,
+        check: impl FnOnce(
+            &types::gloas::containers::ExecutionPayload<P>,
+            &[types::gloas::primitives::Transaction<P>],
+        ) -> Result<Option<bool>>,
+    ) -> Result<()> {
+        let root = envelope.block_root();
+        if matches!(
+            self.payload_inclusion_list_satisfaction.get(&root),
+            Some(InclusionListSatisfaction::Verified(_))
+        ) {
+            self.apply_execution_payload_envelope(envelope, is_before_deadline);
+            return Ok(());
+        }
+        let transactions = self.payload_inclusion_list_transactions(root, true)?;
+        let satisfaction = check(&envelope.message.payload, &transactions)?;
+        self.record_payload_inclusion_list_satisfaction(root, satisfaction)?;
+        self.apply_execution_payload_envelope(envelope, is_before_deadline);
+        Ok(())
+    }
+
+    /// Used when selecting a builder bid for a Heze proposal. The proposer's view
+    /// includes late lists; fork-choice checks use only timely lists.
+    pub fn validate_heze_bid_inclusion_list_bits(
+        &self,
+        bid: &types::heze::containers::ExecutionPayloadBid<P>,
+        only_timely: bool,
+    ) -> Result<()> {
+        let slot = bid
+            .slot
+            .checked_sub(1)
+            .ok_or_else(|| anyhow!("genesis has no inclusion lists"))?;
+        let epoch = misc::compute_epoch_at_slot::<P>(slot);
+        let dependent_root = self
+            .shuffling_dependent_root(bid.parent_block_root, epoch)
+            .ok_or_else(|| anyhow!("unknown shuffling dependent root"))?;
+        let start =
+            misc::compute_start_slot_at_epoch::<P>(epoch.saturating_sub(P::MinSeedLookahead::U64));
+        let state =
+            self.state_cache
+                .state_at_slot(&self.pubkey_cache, self, dependent_root, start)?;
+        let committee = helper_functions::heze::get_inclusion_list_committee(&state, slot)?;
+        ensure!(
+            self.inclusion_list_store.is_inclusion_list_bits_inclusive(
+                &committee,
+                slot,
+                dependent_root,
+                bid.inclusion_list_bits,
+                only_timely,
+            ),
+            "builder bid omits locally required inclusion lists"
+        );
+        Ok(())
+    }
+
     pub fn is_payload_verified(&self, block_root: H256) -> bool {
         self.payloads.contains(&block_root)
     }
