@@ -15,7 +15,7 @@ use helper_functions::{
 };
 use pubkey_cache::PubkeyCache;
 use spec_test_utils::{BlsSetting, Case};
-use ssz::{SszHash as _, SszReadDefault as _};
+use ssz::{SszHash as _, SszList as _, SszReadDefault as _};
 
 use std::{
     io::Write as _,
@@ -29,7 +29,7 @@ use types::{
     combined::{BeaconState, SignedBeaconBlock},
     nonstandard::Phase,
     preset::{Mainnet, Minimal, Preset},
-    traits::BeaconState as _,
+    traits::{BeaconState as _, SszValidatorList as _},
 };
 
 fn root() -> PathBuf {
@@ -52,10 +52,11 @@ fn cases(preset: &str, kind: &str) -> Result<Vec<PathBuf>> {
         }
         Ok(())
     }
-    let category = if kind == "execution_payload_bid" {
-        "heze/operations"
-    } else {
-        "heze/sanity"
+    let category = match kind {
+        "execution_payload_bid" => "heze/operations",
+        "pending_deposits" => "heze/epoch_processing",
+        "fork" => "heze/fork",
+        _ => "heze/sanity",
     };
     let dir = root().join(preset).join(category).join(kind);
     ensure!(dir.is_dir(), "MISSING_FIXTURES: {}", dir.display());
@@ -74,12 +75,33 @@ fn execute<P: Preset>(case: Case<'_>, kind: &str) -> Result<()> {
 }
 fn execute_at_phase<P: Preset>(case: Case<'_>, kind: &str, phase: Phase) -> Result<()> {
     let pre = bytes(case, "pre");
+    let pre_phase = if kind == "fork" { Phase::Gloas } else { phase };
     let mut state =
-        BeaconState::<P>::from_ssz_at_phase(phase, &pre).context("Heze pre-state SSZ")?;
-    ensure!(state.phase() == phase, "decoded state has the wrong fork");
+        BeaconState::<P>::from_ssz_at_phase(pre_phase, &pre).context("pre-state SSZ")?;
+    ensure!(
+        state.phase() == pre_phase,
+        "decoded state has the wrong fork"
+    );
     let config = P::default_config().upgrade_once(phase, 0);
     let cache = PubkeyCache::default();
-    let outcome = if kind == "execution_payload_bid" {
+    let outcome = if kind == "fork" {
+        let BeaconState::Gloas(pre) = &state else {
+            anyhow::bail!("expected Gloas before Heze fork")
+        };
+        let post = helper_functions::fork::upgrade_to_heze(&config, pre.as_ref().clone())?;
+        state = post.into();
+        Ok(())
+    } else if kind == "pending_deposits" {
+        match &mut state {
+            BeaconState::Heze(pre) => {
+                transition_functions::heze::process_pending_deposits(&config, &cache, pre)
+            }
+            BeaconState::Gloas(pre) => {
+                transition_functions::gloas::process_pending_deposits(&config, &cache, pre)
+            }
+            _ => anyhow::bail!("unexpected phase for pending deposit vector"),
+        }
+    } else if kind == "execution_payload_bid" {
         let bid = types::heze::containers::SignedExecutionPayloadBid::<P>::from_ssz_default(
             bytes(case, "execution_payload_bid"),
         )?;
@@ -348,4 +370,41 @@ fn heze_preserves_gloas_reference_transitions() -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[test]
+fn heze_minimal_pending_deposits() -> Result<()> {
+    run::<Minimal>("minimal", "pending_deposits")
+}
+#[test]
+fn heze_mainnet_pending_deposits() -> Result<()> {
+    run::<Mainnet>("mainnet", "pending_deposits")
+}
+#[test]
+fn heze_minimal_fork() -> Result<()> {
+    run::<Minimal>("minimal", "fork")
+}
+#[test]
+fn heze_mainnet_fork() -> Result<()> {
+    run::<Mainnet>("mainnet", "fork")
+}
+#[test]
+fn heze_preserves_gloas_bls_validator_registration() -> Result<()> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(
+        "../test-vectors/gloas/minimal/gloas/epoch_processing/pending_deposits/pyspec_tests/apply_pending_deposit_min_activation");
+    let case = Case::from(path.to_str().context("Gloas fixture path")?);
+    let pre =
+        types::gloas::beacon_state::BeaconState::<Minimal>::from_ssz_default(bytes(case, "pre"))?;
+    let pending = pre.pending_deposits.get(0)?;
+    ensure!(
+        pending.withdrawal_credentials[0] == 0,
+        "regression must exercise a new BLS validator"
+    );
+    let post =
+        types::gloas::beacon_state::BeaconState::<Minimal>::from_ssz_default(bytes(case, "post"))?;
+    ensure!(
+        post.validators.len_u64() == pre.validators.len_u64() + 1,
+        "Gloas must still register the validator"
+    );
+    execute_at_phase::<Minimal>(case, "pending_deposits", Phase::Gloas)
 }

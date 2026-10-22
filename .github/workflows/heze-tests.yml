@@ -12,6 +12,7 @@ on:
       - 'transition_functions/**'
       - 'helper_functions/**'
       - 'types/**'
+      - 'genesis/**'
       - '**/Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'

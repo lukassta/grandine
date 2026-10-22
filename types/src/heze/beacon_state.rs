@@ -9,8 +9,8 @@ use crate::{
     cache::Cache,
     capella::primitives::WithdrawalIndex,
     collections::{
-        BuilderPendingPayments, BuilderPendingWithdrawals, Builders, Eth1DataVotes,
-        HistoricalRoots, HistoricalSummaries, PayloadExpectedWithdrawals, ProgressiveBalances,
+        BuilderPendingPayments, BuilderPendingWithdrawals, Builders, HistoricalRoots,
+        HistoricalSummaries, PayloadExpectedWithdrawals, ProgressiveBalances,
         ProgressiveEpochParticipation, ProgressiveInactivityScores,
         ProgressivePendingConsolidations, ProgressivePendingDeposits,
         ProgressivePendingPartialWithdrawals, ProgressiveValidators, ProposerLookahead, PtcWindow,
@@ -20,10 +20,8 @@ use crate::{
     heze::containers::ExecutionPayloadBid,
     phase0::{
         consts::JustificationBitsLength,
-        containers::{BeaconBlockHeader, Checkpoint, Eth1Data, Fork},
-        primitives::{
-            DepositIndex, Epoch, ExecutionBlockHash, Gwei, H256, Slot, UnixSeconds, ValidatorIndex,
-        },
+        containers::{BeaconBlockHeader, Checkpoint, Fork},
+        primitives::{Epoch, ExecutionBlockHash, Gwei, H256, Slot, UnixSeconds, ValidatorIndex},
     },
     preset::{Preset, SlotsPerHistoricalRoot},
 };
@@ -46,18 +44,6 @@ pub struct BeaconState<P: Preset> {
     pub block_roots: RecentRoots<P>,
     pub state_roots: RecentRoots<P>,
     pub historical_roots: HistoricalRoots<P>,
-
-    // > Eth1
-    #[ssz(skip)]
-    #[serde(skip)]
-    pub eth1_data: Eth1Data,
-    #[ssz(skip)]
-    #[serde(skip)]
-    pub eth1_data_votes: Eth1DataVotes<P>,
-    // Legacy shared-trait storage; not a Heze consensus field.
-    #[serde(skip)]
-    #[ssz(skip)]
-    pub eth1_deposit_index: DepositIndex,
 
     // > Registry
     pub validators: ProgressiveValidators,
@@ -102,10 +88,6 @@ pub struct BeaconState<P: Preset> {
 
     // > Deep history valid from Capella onwards
     pub historical_summaries: HistoricalSummaries<P>,
-    // Legacy shared-trait storage; not a Heze consensus field.
-    #[serde(skip)]
-    #[ssz(skip)]
-    pub deposit_requests_start_index: DepositIndex,
     #[serde(with = "serde_utils::string_or_native")]
     pub deposit_balance_to_consume: Gwei,
     #[serde(with = "serde_utils::string_or_native")]

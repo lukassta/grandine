@@ -107,7 +107,7 @@ pub fn process_epoch<P: Preset>(
     clippy::useless_let_if_seq,
     reason = "assignments with multiple variables are more readable with conditional affectation"
 )]
-fn process_pending_deposits<P: Preset>(
+pub fn process_pending_deposits<P: Preset>(
     config: &Config,
     pubkey_cache: &PubkeyCache,
     state: &mut impl PostElectraBeaconState<P>,

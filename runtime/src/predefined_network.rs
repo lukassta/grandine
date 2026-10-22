@@ -339,7 +339,9 @@ mod tests {
         let state = genesis_checkpoint_provider.checkpoint().value.state;
         let deposit_tree = predefined_network.genesis_deposit_tree();
 
-        assert_eq!(state.eth1_data().deposit_count, deposit_tree.deposit_count);
-        assert_eq!(state.eth1_deposit_index(), deposit_tree.deposit_count);
+        if let Some(legacy) = state.pre_heze() {
+            assert_eq!(legacy.eth1_data().deposit_count, deposit_tree.deposit_count);
+            assert_eq!(legacy.eth1_deposit_index(), deposit_tree.deposit_count);
+        }
     }
 }

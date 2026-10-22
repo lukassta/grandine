@@ -185,8 +185,8 @@ pub fn process_randao<P: Preset>(
 
 #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug", skip_all))]
 pub fn process_eth1_data<P: Preset>(
-    state: &mut impl BeaconState<P>,
-    body: &impl BeaconBlockBody<P>,
+    state: &mut impl types::traits::PreHezeBeaconState<P>,
+    body: &impl types::traits::PreHezeBeaconBlockBody<P>,
 ) -> Result<()> {
     // Possible optimization: add a `deduplicating_push` method to `PersistentList` and use it here.
     // Make it deduplicate consecutive list items and reuse cached values of `hash_tree_root`.
@@ -435,7 +435,7 @@ pub fn validate_attestation_with_verifier<P: Preset>(
 pub fn validate_deposits<P: Preset>(
     config: &Config,
     pubkey_cache: &PubkeyCache,
-    state: &impl BeaconState<P>,
+    state: &impl types::traits::PreHezeBeaconState<P>,
     deposits: impl IntoIterator<Item = Deposit>,
 ) -> Result<Vec<CombinedDeposit>> {
     let deposits_by_pubkey = (0..)
@@ -576,7 +576,7 @@ pub fn validate_deposits<P: Preset>(
 }
 
 pub fn verify_deposit_merkle_branch<P: Preset>(
-    state: &impl BeaconState<P>,
+    state: &impl types::traits::PreHezeBeaconState<P>,
     eth1_deposit_index: DepositIndex,
     deposit: Deposit,
 ) -> Result<()> {

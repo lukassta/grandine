@@ -6,7 +6,7 @@ use crate::{
     deneb::primitives::KzgCommitment,
     gloas::primitives::BuilderIndex,
     heze::primitives::{InclusionListBits, Transactions},
-    phase0::containers::{Deposit, Eth1Data, ProposerSlashing, SignedVoluntaryExit},
+    phase0::containers::{ProposerSlashing, SignedVoluntaryExit},
     phase0::primitives::{ExecutionAddress, ExecutionBlockHash, Gwei, H256, Slot, ValidatorIndex},
     preset::Preset,
 };
@@ -84,17 +84,10 @@ pub struct BeaconBlock<P: Preset> {
 #[ssz(stable(active = [1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1]))]
 pub struct BeaconBlockBody<P: Preset> {
     pub randao_reveal: SignatureBytes,
-    // Legacy trait compatibility only; absent from Heze SSZ and JSON.
-    #[ssz(skip)]
-    #[serde(skip)]
-    pub eth1_data: Eth1Data,
     pub graffiti: H256,
     pub proposer_slashings: ProgressiveList<ProposerSlashing>,
     pub attester_slashings: ProgressiveList<AttesterSlashing<P>>,
     pub attestations: ProgressiveList<Attestation<P>>,
-    #[ssz(skip)]
-    #[serde(skip)]
-    pub deposits: ProgressiveList<Deposit>,
     pub voluntary_exits: ProgressiveList<SignedVoluntaryExit>,
     pub sync_aggregate: SyncAggregate<P>,
     pub bls_to_execution_changes: ProgressiveList<SignedBlsToExecutionChange>,

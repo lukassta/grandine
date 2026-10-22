@@ -401,7 +401,7 @@ pub fn apply_attestation<P: Preset>(
 pub fn process_deposit_data<P: Preset>(
     config: &Config,
     pubkey_cache: &PubkeyCache,
-    state: &mut impl PostAltairBeaconState<P>,
+    state: &mut (impl PostAltairBeaconState<P> + types::traits::PreHezeBeaconState<P>),
     deposit_data: DepositData,
 ) -> Result<Option<ValidatorIndex>> {
     let DepositData {
@@ -456,7 +456,7 @@ pub fn process_deposit_data<P: Preset>(
 }
 
 pub fn apply_deposits<P: Preset>(
-    state: &mut impl PostAltairBeaconState<P>,
+    state: &mut (impl PostAltairBeaconState<P> + types::traits::PreHezeBeaconState<P>),
     deposit_count: usize,
     combined_deposits: impl IntoIterator<Item = CombinedDeposit>,
     mut slot_report: impl SlotReport,

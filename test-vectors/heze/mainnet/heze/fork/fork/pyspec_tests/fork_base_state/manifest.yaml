@@ -1,0 +1,6 @@
+preset: mainnet
+fork: heze
+runner: fork
+handler: fork
+suite: pyspec_tests
+case: fork_base_state

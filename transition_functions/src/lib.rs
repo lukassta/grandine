@@ -29,6 +29,10 @@
 //                      somehow (even with `Ordering::SeqCst`). Using Rayon in
 //                      `altair::epoch_intermediates::epoch_deltas` does the same.
 
+// fs_err is used by the separate reference-vector integration target.
+#[cfg(test)]
+use fs_err as _;
+
 pub mod combined;
 
 pub mod unphased {
@@ -243,6 +247,7 @@ pub mod gloas {
 
     pub(crate) use block_processing::{process_block, process_block_for_gossip};
     pub(crate) use epoch_processing::process_epoch;
+    pub use epoch_processing::process_pending_deposits;
     pub(crate) use slot_processing::process_slots;
     pub(crate) use state_transition::{state_transition, verify_signatures};
 
@@ -260,6 +265,7 @@ pub mod heze {
     };
     pub(crate) use block_processing::{process_block, process_block_for_gossip};
     pub(crate) use epoch_processing::process_epoch;
+    pub use epoch_processing::{apply_pending_deposit, process_pending_deposits};
     pub(crate) use slot_processing::process_slots;
     pub(crate) use state_transition::{state_transition, verify_signatures};
     mod block_processing;

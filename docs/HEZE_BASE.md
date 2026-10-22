@@ -23,4 +23,5 @@ the actual Heze specification already includes EIP feature changes to its schema
 and rules. This scaffold is not the final Heze specification.
 
 The following commit adds EIP-7805 consensus behavior and its focused tests.
-The EIP-8015 and EIP-8365 work remains assigned to the other team member.
+EIP-8015 and EIP-8365 consensus support is added in a later follow-up commit;
+see HEZE_FOCIL.md for the current implementation and validation.

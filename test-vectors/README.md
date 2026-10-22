@@ -5,10 +5,11 @@ Specification revision: see HEZE_SOURCE_COMMIT (12c8b24bc09b12f62688d439ba20ef00
 Run make test-heze for the focused consensus suite. See
 [Heze/FOCIL implementation and team coordination](../docs/HEZE_FOCIL.md).
 
-- heze/: 20 unmodified official cases (10 minimal, 10 mainnet).
-  Each preset has nine sanity cases and one operation case verifying a builder
-  bid with non-default inclusion_list_bits.
-- gloas/: five official minimal sanity cases guarding the earlier fork.
+- heze/: 44 unmodified official cases (27 minimal, 17 mainnet).
+  Sanity and builder-bid cases, EIP-8365 pending-deposit transitions, and
+  EIP-8015 Gloas-to-Heze fork transitions.
+- gloas/: six official minimal regressions guarding the earlier fork,
+  including new BLS-withdrawal validator registration.
 - focil-oracle/: additional comparisons produced directly by the pinned Python
   specification. These are explicitly separate from official pytest vectors.
 - heze.sha256: checksums of all checked-in fixture files.
@@ -39,3 +40,8 @@ The source directory phase0 does not determine the generated fork: --fork=heze d
 The five Gloas regressions use --fork=gloas --preset=minimal and output directory
 test-vectors/gloas: slots_1, empty_epoch, empty_block_transition,
 invalid_incorrect_state_root and invalid_all_zeroed_sig.
+
+
+Additional EIP-8015/EIP-8365 generation commands and exact selections are documented
+in ../docs/HEZE_FOCIL.md. Fork vectors need --fork=gloas --fork=heze because their
+input phase differs from their output phase.

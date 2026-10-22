@@ -62,6 +62,8 @@ use ::{enum_iterator::Sequence, strum::VariantNames};
 ///
 /// See [presets in `consensus-specs`](https://github.com/ethereum/consensus-specs/tree/aac851f860fa384916f62027b2dbe3318a354c5b/presets).
 pub trait Preset: Copy + Eq + Ord + Hash + Default + Debug + Send + Sync + 'static {
+    const INCLUSION_LIST_COMMITTEE_SIZE: u64 = 16;
+
     // Phase 0
     type EpochsPerEth1VotingPeriod: Unsigned
         + NonZero
@@ -770,6 +772,15 @@ impl PresetName {
         }
     }
 
+    #[must_use]
+    pub const fn heze_preset(self) -> HezePreset {
+        match self {
+            Self::Mainnet => HezePreset::new::<Mainnet>(),
+            Self::Minimal => HezePreset::new::<Minimal>(),
+            Self::Medalla => HezePreset::new::<Medalla>(),
+        }
+    }
+
     fn default_config(self) -> Config {
         match self {
             Self::Mainnet => Config::mainnet(),
@@ -1150,6 +1161,22 @@ impl FuluPreset {
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
+pub struct HezePreset {
+    #[serde(with = "serde_utils::string_or_native")]
+    inclusion_list_committee_size: u64,
+}
+
+impl HezePreset {
+    #[must_use]
+    pub const fn new<P: Preset>() -> Self {
+        Self {
+            inclusion_list_committee_size: P::INCLUSION_LIST_COMMITTEE_SIZE,
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
 pub struct GloasPreset {
     #[serde(with = "serde_utils::string_or_native")]
     ptc_size: NonZeroU64,
@@ -1247,6 +1274,7 @@ mod tests {
                 &preset_name.electra_preset(),
                 &preset_name.fulu_preset(),
                 &preset_name.gloas_preset(),
+                &preset_name.heze_preset(),
             ];
         }
     }

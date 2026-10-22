@@ -27,7 +27,7 @@ use types::{
 use super::epoch_intermediates;
 use crate::{
     altair::{self, EpochDeltasForTransition},
-    electra::{self, apply_pending_deposit},
+    electra::{self},
     fulu, unphased,
 };
 
@@ -102,14 +102,35 @@ pub fn process_epoch<P: Preset>(
     Ok(())
 }
 
+/// Apply a pending deposit without creating new BLS-withdrawal validators.
+///
+/// EIP-8365 preserves top-ups to existing validators, even if the deposit
+/// signature or supplied withdrawal credentials do not match.
+pub fn apply_pending_deposit<P: Preset>(
+    config: &Config,
+    pubkey_cache: &PubkeyCache,
+    state: &mut BeaconState<P>,
+    deposit: &types::electra::containers::PendingDeposit,
+) -> Result<()> {
+    if index_of_public_key(state, &deposit.pubkey).is_none()
+        && deposit
+            .withdrawal_credentials
+            .as_bytes()
+            .starts_with(types::phase0::consts::BLS_WITHDRAWAL_PREFIX)
+    {
+        return Ok(());
+    }
+    electra::apply_pending_deposit(config, pubkey_cache, state, deposit)
+}
+
 #[expect(
     clippy::useless_let_if_seq,
     reason = "assignments with multiple variables are more readable with conditional affectation"
 )]
-fn process_pending_deposits<P: Preset>(
+pub fn process_pending_deposits<P: Preset>(
     config: &Config,
     pubkey_cache: &PubkeyCache,
-    state: &mut impl PostElectraBeaconState<P>,
+    state: &mut BeaconState<P>,
 ) -> Result<()> {
     let next_epoch = get_current_epoch(state).try_add(1)?;
     let available_for_processing = state
@@ -253,427 +274,4 @@ fn process_historical_summaries_update<P: Preset>(state: &mut BeaconState<P>) ->
     Ok(())
 }
 
-#[cfg(test)]
-mod spec_tests {
-    use helper_functions::misc::vec_of_default;
-    use spec_test_utils::Case;
-    use test_generator::test_resources;
-    use types::preset::{Mainnet, Minimal};
-
-    use super::*;
-
-    use crate::altair::ValidatorSummary;
-
-    // We do not honor `bls_setting` in epoch processing tests because none of them customize it.
-
-    #[test_resources(
-        "consensus-spec-tests/tests/mainnet/gloas/epoch_processing/justification_and_finalization/*/*"
-    )]
-    fn mainnet_justification_and_finalization(case: Case) {
-        run_justification_and_finalization_case::<Mainnet>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/minimal/gloas/epoch_processing/justification_and_finalization/*/*"
-    )]
-    fn minimal_justification_and_finalization(case: Case) {
-        run_justification_and_finalization_case::<Minimal>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/mainnet/gloas/epoch_processing/inactivity_updates/*/*"
-    )]
-    fn mainnet_inactivity_updates_updates(case: Case) {
-        run_inactivity_updates_case::<Mainnet>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/minimal/gloas/epoch_processing/inactivity_updates/*/*"
-    )]
-    fn minimal_inactivity_updates_updates(case: Case) {
-        run_inactivity_updates_case::<Minimal>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/mainnet/gloas/epoch_processing/rewards_and_penalties/*/*"
-    )]
-    fn mainnet_rewards_and_penalties(case: Case) {
-        run_rewards_and_penalties_case::<Mainnet>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/minimal/gloas/epoch_processing/rewards_and_penalties/*/*"
-    )]
-    fn minimal_rewards_and_penalties(case: Case) {
-        run_rewards_and_penalties_case::<Minimal>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/mainnet/gloas/epoch_processing/registry_updates/*/*"
-    )]
-    fn mainnet_registry_updates(case: Case) {
-        run_registry_updates_case::<Mainnet>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/minimal/gloas/epoch_processing/registry_updates/*/*"
-    )]
-    fn minimal_registry_updates(case: Case) {
-        run_registry_updates_case::<Minimal>(case);
-    }
-
-    #[test_resources("consensus-spec-tests/tests/mainnet/gloas/epoch_processing/slashings/*/*")]
-    fn mainnet_slashings(case: Case) {
-        run_slashings_case::<Mainnet>(case);
-    }
-
-    #[test_resources("consensus-spec-tests/tests/minimal/gloas/epoch_processing/slashings/*/*")]
-    fn minimal_slashings(case: Case) {
-        run_slashings_case::<Minimal>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/mainnet/gloas/epoch_processing/eth1_data_reset/*/*"
-    )]
-    fn mainnet_eth1_data_reset(case: Case) {
-        run_eth1_data_reset_case::<Mainnet>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/minimal/gloas/epoch_processing/eth1_data_reset/*/*"
-    )]
-    fn minimal_eth1_data_reset(case: Case) {
-        run_eth1_data_reset_case::<Minimal>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/mainnet/gloas/epoch_processing/effective_balance_updates/*/*"
-    )]
-    fn mainnet_effective_balance_updates(case: Case) {
-        run_effective_balance_updates_case::<Mainnet>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/minimal/gloas/epoch_processing/effective_balance_updates/*/*"
-    )]
-    fn minimal_effective_balance_updates(case: Case) {
-        run_effective_balance_updates_case::<Minimal>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/mainnet/gloas/epoch_processing/slashings_reset/*/*"
-    )]
-    fn mainnet_slashings_reset(case: Case) {
-        run_slashings_reset_case::<Mainnet>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/minimal/gloas/epoch_processing/slashings_reset/*/*"
-    )]
-    fn minimal_slashings_reset(case: Case) {
-        run_slashings_reset_case::<Minimal>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/mainnet/gloas/epoch_processing/randao_mixes_reset/*/*"
-    )]
-    fn mainnet_randao_mixes_reset(case: Case) {
-        run_randao_mixes_reset_case::<Mainnet>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/minimal/gloas/epoch_processing/randao_mixes_reset/*/*"
-    )]
-    fn minimal_randao_mixes_reset(case: Case) {
-        run_randao_mixes_reset_case::<Minimal>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/mainnet/gloas/epoch_processing/historical_summaries_update/*/*"
-    )]
-    fn mainnet_historical_summaries_update(case: Case) {
-        run_historical_summaries_update_case::<Mainnet>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/minimal/gloas/epoch_processing/historical_summaries_update/*/*"
-    )]
-    fn minimal_historical_summaries_update(case: Case) {
-        run_historical_summaries_update_case::<Minimal>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/mainnet/gloas/epoch_processing/participation_flag_updates/*/*"
-    )]
-    fn mainnet_participation_flag_updates(case: Case) {
-        run_participation_flag_updates_case::<Mainnet>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/minimal/gloas/epoch_processing/participation_flag_updates/*/*"
-    )]
-    fn minimal_participation_flag_updates(case: Case) {
-        run_participation_flag_updates_case::<Minimal>(case);
-    }
-
-    // There are no mainnet test cases for the `sync_committee_updates` sub-transition.
-    #[test_resources(
-        "consensus-spec-tests/tests/minimal/gloas/epoch_processing/sync_committee_updates/*/*"
-    )]
-    fn minimal_sync_committee_updates(case: Case) {
-        run_sync_committee_updates_case::<Minimal>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/mainnet/gloas/epoch_processing/pending_deposits/*/*"
-    )]
-    fn mainnet_pending_deposits(case: Case) {
-        run_pending_deposits_case::<Mainnet>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/mainnet/gloas/epoch_processing/pending_deposits_churn/*/*"
-    )]
-    fn mainnet_pending_deposits_churn(case: Case) {
-        run_pending_deposits_case::<Mainnet>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/minimal/gloas/epoch_processing/pending_deposits/*/*"
-    )]
-    fn minimal_pending_deposits(case: Case) {
-        run_pending_deposits_case::<Minimal>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/minimal/gloas/epoch_processing/pending_deposits_churn/*/*"
-    )]
-    fn minimal_pending_deposits_churn(case: Case) {
-        run_pending_deposits_case::<Minimal>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/mainnet/gloas/epoch_processing/pending_consolidations/*/*"
-    )]
-    fn mainnet_pending_consolidations(case: Case) {
-        run_pending_consolidations_case::<Mainnet>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/minimal/gloas/epoch_processing/pending_consolidations/*/*"
-    )]
-    fn minimal_pending_consolidations(case: Case) {
-        run_pending_consolidations_case::<Minimal>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/mainnet/gloas/epoch_processing/proposer_lookahead/*/*"
-    )]
-    fn mainnet_process_look(case: Case) {
-        run_process_look_case::<Mainnet>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/minimal/gloas/epoch_processing/proposer_lookahead/*/*"
-    )]
-    fn minimal_process_look(case: Case) {
-        run_process_look_case::<Minimal>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/mainnet/gloas/epoch_processing/builder_pending_payments/*/*"
-    )]
-    fn mainnet_process_builder_pending_payments(case: Case) {
-        run_process_builder_pending_payments_case::<Mainnet>(case);
-    }
-
-    #[test_resources(
-        "consensus-spec-tests/tests/minimal/gloas/epoch_processing/builder_pending_payments/*/*"
-    )]
-    fn minimal_process_builder_pending_payments(case: Case) {
-        run_process_builder_pending_payments_case::<Minimal>(case);
-    }
-
-    #[test_resources("consensus-spec-tests/tests/mainnet/gloas/epoch_processing/ptc_window/*/*")]
-    fn mainnet_process_ptc_window(case: Case) {
-        run_case::<Mainnet>(case, |_, state| {
-            process_ptc_window(state)?;
-
-            Ok(())
-        })
-    }
-
-    #[test_resources("consensus-spec-tests/tests/minimal/gloas/epoch_processing/ptc_window/*/*")]
-    fn minimal_process_ptc_window(case: Case) {
-        run_case::<Minimal>(case, |_, state| {
-            process_ptc_window(state)?;
-
-            Ok(())
-        })
-    }
-
-    #[test_resources("consensus-spec-tests/tests/mainnet/gloas/epoch_processing/*/*/*")]
-    fn mainnet_epoch_processing(case: Case) {
-        run_epoch_case::<Mainnet>(case);
-    }
-
-    #[test_resources("consensus-spec-tests/tests/minimal/gloas/epoch_processing/*/*/*")]
-    fn minimal_epoch_processing(case: Case) {
-        run_epoch_case::<Minimal>(case);
-    }
-
-    fn run_justification_and_finalization_case<P: Preset>(case: Case) {
-        run_case::<P>(case, |_, state| {
-            let (statistics, _, _) = altair::statistics_and_summaries(state)?;
-
-            altair::process_justification_and_finalization(state, statistics)
-        });
-
-        run_case::<P>(case, |_, state| {
-            let statistics = altair::statistics(state)?;
-
-            altair::process_justification_and_finalization(state, statistics)
-        });
-    }
-
-    fn run_inactivity_updates_case<P: Preset>(case: Case) {
-        run_case::<P>(case, |_, state| {
-            let (_, summaries, participation) = altair::statistics_and_summaries(state)?;
-
-            altair::process_inactivity_updates(
-                &P::default_config(),
-                state,
-                summaries,
-                participation,
-            )
-        });
-    }
-
-    fn run_rewards_and_penalties_case<P: Preset>(case: Case) {
-        run_case::<P>(case, |_, state| {
-            let (statistics, summaries, participation) = altair::statistics_and_summaries(state)?;
-
-            let deltas: Vec<EpochDeltasForTransition> = epoch_intermediates::epoch_deltas(
-                &P::default_config(),
-                state,
-                statistics,
-                summaries,
-                participation,
-            )?;
-
-            unphased::process_rewards_and_penalties(state, deltas)
-        });
-    }
-
-    fn run_registry_updates_case<P: Preset>(case: Case) {
-        run_case::<P>(case, |_, state| {
-            let mut summaries: Vec<ValidatorSummary> = vec_of_default(state);
-
-            electra::process_registry_updates(&P::default_config(), state, summaries.as_mut_slice())
-        });
-    }
-
-    fn run_slashings_case<P: Preset>(case: Case) {
-        run_case::<P>(case, |_, state| {
-            let (_, summaries, _) = altair::statistics_and_summaries(state)?;
-
-            electra::process_slashings::<_, ()>(state, summaries)
-        });
-    }
-
-    fn run_eth1_data_reset_case<P: Preset>(case: Case) {
-        run_case::<P>(case, |_, state| unphased::process_eth1_data_reset(state));
-    }
-
-    fn run_effective_balance_updates_case<P: Preset>(case: Case) {
-        run_case::<P>(case, |_, state| {
-            electra::process_effective_balance_updates(state)?;
-
-            Ok(())
-        });
-    }
-
-    fn run_slashings_reset_case<P: Preset>(case: Case) {
-        run_case::<P>(case, |_, state| unphased::process_slashings_reset(state));
-    }
-
-    fn run_randao_mixes_reset_case<P: Preset>(case: Case) {
-        run_case::<P>(case, |_, state| unphased::process_randao_mixes_reset(state));
-    }
-
-    fn run_historical_summaries_update_case<P: Preset>(case: Case) {
-        run_case::<P>(case, |_, state| process_historical_summaries_update(state));
-    }
-
-    fn run_participation_flag_updates_case<P: Preset>(case: Case) {
-        run_case::<P>(case, |_, state| {
-            altair::process_participation_flag_updates(state);
-
-            Ok(())
-        });
-    }
-
-    fn run_sync_committee_updates_case<P: Preset>(case: Case) {
-        run_case::<P>(case, altair::process_sync_committee_updates);
-    }
-
-    fn run_pending_deposits_case<P: Preset>(case: Case) {
-        run_case::<P>(case, |pubkey_cache, state| {
-            process_pending_deposits(&P::default_config(), pubkey_cache, state)
-        });
-    }
-
-    fn run_pending_consolidations_case<P: Preset>(case: Case) {
-        run_case::<P>(case, |_, state| {
-            electra::process_pending_consolidations(state)
-        })
-    }
-
-    fn run_process_look_case<P: Preset>(case: Case) {
-        run_case::<P>(case, |_, state| {
-            fulu::process_proposer_lookahead(&P::default_config(), state)
-        })
-    }
-
-    fn run_process_builder_pending_payments_case<P: Preset>(case: Case) {
-        run_case::<P>(case, |_, state| process_builder_pending_payments(state))
-    }
-
-    fn run_case<P: Preset>(
-        case: Case,
-        sub_transition: impl FnOnce(&PubkeyCache, &mut BeaconState<P>) -> Result<()>,
-    ) {
-        let pubkey_cache = PubkeyCache::default();
-        let mut state = case.ssz_default("pre");
-        let post_option = case.try_ssz_default("post");
-
-        let result = sub_transition(&pubkey_cache, &mut state).map(|()| state);
-
-        if let Some(expected_post) = post_option {
-            let actual_post = result.expect("epoch processing should succeed");
-            assert_eq!(actual_post, expected_post);
-        } else {
-            result.expect_err("epoch processing should fail");
-        }
-    }
-
-    fn run_epoch_case<P: Preset>(case: Case) {
-        let pubkey_cache = PubkeyCache::default();
-        // Some sub-transition test cases (e.g. `effective_balance_updates/effective_balance_hysteresis*`,
-        // `slashings/{minimal_penalty,scaled_penalties}`, `pending_deposits/process_pending_deposits_withdrawable_validator_not_churned`)
-        // don't ship `pre_epoch`/`post_epoch` SSZ files because they aren't valid full-epoch transitions. Skip them.
-        let Some(mut state) = case.try_ssz_default::<BeaconState<P>>("pre_epoch") else {
-            return;
-        };
-        let post_option: Option<BeaconState<P>> = case.try_ssz_default("post_epoch");
-
-        let result = process_epoch(&P::default_config(), &pubkey_cache, &mut state).map(|()| state);
-
-        if let Some(expected_post) = post_option {
-            let actual_post = result.expect("epoch processing should succeed");
-            assert_eq!(actual_post, expected_post);
-        } else {
-            result.expect_err("epoch processing should fail");
-        }
-    }
-}
+// Official Heze vectors are exercised by tests/heze_reference_vectors.rs.

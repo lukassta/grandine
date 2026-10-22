@@ -940,7 +940,11 @@ impl<P: Preset, W: Wait> BlockBuildContext<P, W> {
     ) -> Result<BeaconBlock<P>> {
         info_with_peers!("block producer starting build beacon block without state root task");
 
-        let eth1_data = self.beacon_state.eth1_data();
+        let eth1_data = self
+            .beacon_state
+            .pre_heze()
+            .ok_or_else(|| anyhow::anyhow!("legacy block construction is unavailable in Heze"))?
+            .eth1_data();
         let deposits = ContiguousList::default();
 
         // TODO(Grandine Team): Preparing slashings and voluntary exits independently may result

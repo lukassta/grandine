@@ -5494,7 +5494,9 @@ where
         head_state: &Arc<BeaconState<P>>,
         metrics: &Arc<Metrics>,
     ) -> Result<()> {
-        metrics.set_beacon_processed_deposits_total(head_state.eth1_deposit_index());
+        if let Some(legacy) = head_state.pre_heze() {
+            metrics.set_beacon_processed_deposits_total(legacy.eth1_deposit_index());
+        }
         metrics.set_validator_count(head_state.validators().len_usize());
         metrics.set_beacon_current_active_validators(
             accessors::get_active_validator_indices(head_state, RelativeEpoch::Current)?.count(),

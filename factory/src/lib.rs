@@ -91,7 +91,10 @@ pub fn empty_block<P: Preset>(
     graffiti: H256,
 ) -> Result<BlockWithState<P>> {
     let advanced_state = advance_state(config, pubkey_cache, pre_state, slot)?;
-    let eth1_data = advanced_state.eth1_data();
+    let eth1_data = advanced_state
+        .pre_heze()
+        .ok_or_else(|| anyhow::anyhow!("legacy block construction is unavailable in Heze"))?
+        .eth1_data();
     let attestations = core::iter::empty();
     let deposits = ContiguousList::default();
     let sync_aggregate = SyncAggregate::empty();
@@ -119,7 +122,10 @@ pub fn block_justifying_previous_epoch<P: Preset>(
 ) -> Result<BlockWithState<P>> {
     let block_slot = misc::compute_start_slot_at_epoch::<P>(epoch);
     let advanced_state = advance_state(config, pubkey_cache, pre_state, block_slot)?;
-    let eth1_data = advanced_state.eth1_data();
+    let eth1_data = advanced_state
+        .pre_heze()
+        .ok_or_else(|| anyhow::anyhow!("legacy block construction is unavailable in Heze"))?
+        .eth1_data();
     let attestation_slots = misc::slots_in_epoch::<P>(epoch.saturating_sub(1))?;
     let attestations = full_block_attestations(config, &advanced_state, attestation_slots)?;
     let deposits = ContiguousList::default();
@@ -151,7 +157,10 @@ pub fn block_justifying_current_epoch<P: Preset>(
         misc::compute_start_slot_at_epoch::<P>(epoch.saturating_add(1)).saturating_sub(1);
 
     let advanced_state = advance_state(config, pubkey_cache, pre_state, block_slot)?;
-    let eth1_data = advanced_state.eth1_data();
+    let eth1_data = advanced_state
+        .pre_heze()
+        .ok_or_else(|| anyhow::anyhow!("legacy block construction is unavailable in Heze"))?
+        .eth1_data();
     let attestation_slots = misc::compute_start_slot_at_epoch::<P>(epoch)..block_slot;
     let attestations = full_block_attestations(config, &advanced_state, attestation_slots)?;
     let deposits = ContiguousList::default();
@@ -178,7 +187,10 @@ pub fn block_with_deposits<P: Preset>(
     deposits: ContiguousList<Deposit, P::MaxDeposits>,
 ) -> Result<BlockWithState<P>> {
     let advanced_state = advance_state(config, pubkey_cache, pre_state, slot)?;
-    let eth1_data = advanced_state.eth1_data();
+    let eth1_data = advanced_state
+        .pre_heze()
+        .ok_or_else(|| anyhow::anyhow!("legacy block construction is unavailable in Heze"))?
+        .eth1_data();
     let graffiti = H256::zero();
     let attestations = core::iter::empty();
     let sync_aggregate = SyncAggregate::empty();
@@ -233,7 +245,10 @@ pub fn block_with_payload<P: Preset>(
     execution_payload: ExecutionPayload<P>,
 ) -> Result<BlockWithState<P>> {
     let advanced_state = advance_state(config, pubkey_cache, pre_state, slot)?;
-    let eth1_data = advanced_state.eth1_data();
+    let eth1_data = advanced_state
+        .pre_heze()
+        .ok_or_else(|| anyhow::anyhow!("legacy block construction is unavailable in Heze"))?
+        .eth1_data();
     let attestations = core::iter::empty();
     let deposits = ContiguousList::default();
     let sync_aggregate = SyncAggregate::empty();
@@ -263,7 +278,10 @@ pub fn empty_block_extending_parent_payload<P: Preset>(
     graffiti: H256,
 ) -> Result<BlockWithState<P>> {
     let advanced_state = advance_state(config, pubkey_cache, pre_state, slot)?;
-    let eth1_data = advanced_state.eth1_data();
+    let eth1_data = advanced_state
+        .pre_heze()
+        .ok_or_else(|| anyhow::anyhow!("legacy block construction is unavailable in Heze"))?
+        .eth1_data();
     let attestations = core::iter::empty();
     let deposits = ContiguousList::default();
     let sync_aggregate = SyncAggregate::empty();
@@ -353,7 +371,10 @@ pub fn full_blocks_up_to_epoch<P: Preset>(
     // This has to be a loop because it moves out of `pre_state`.
     for slot in start_slot..=end_slot {
         let advanced_state = advance_state(config, pubkey_cache, pre_state, slot)?;
-        let eth1_data = advanced_state.eth1_data();
+        let eth1_data = advanced_state
+            .pre_heze()
+            .ok_or_else(|| anyhow::anyhow!("legacy block construction is unavailable in Heze"))?
+            .eth1_data();
         let graffiti = H256::zero();
         let attestations =
             full_block_attestations(config, &advanced_state, slot.saturating_sub(1)..slot)?;

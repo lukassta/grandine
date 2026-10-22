@@ -1210,9 +1210,7 @@ pub fn process_deposit_data(
         BeaconState::Gloas(state) => {
             electra::process_deposit_data(config, pubkey_cache, state, deposit_data)
         }
-        BeaconState::Heze(state) => {
-            electra::process_deposit_data(config, pubkey_cache, state, deposit_data)
-        }
+        BeaconState::Heze(_) => anyhow::bail!("legacy deposit processing was removed in Heze"),
     }
 }
 

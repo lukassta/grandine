@@ -7,8 +7,8 @@ Use this revision for all three team members. The live master branch is not a st
 ## Scope
 
 This change implements the FOCIL consensus components and the shared Heze foundation.
-It does not implement EIP-8321, the EIP-8365 pending-deposit rule, or a live Heze
-networking/validator/Engine API client. A passing focused test suite is not proof of
+It includes EIP-8015 and EIP-8365 consensus rules. It does not implement EIP-8321
+or a live Heze networking/validator/Engine API client. A passing focused test suite is not proof of
 all Heze categories passing.
 
 Heze has its own Phase variant, fork epoch/version, state, block, block body and
@@ -48,24 +48,31 @@ The EL callback is a required integration boundary. A simple search for every
 transaction in the payload is not an implementation of the execution-layer
 satisfaction rules (gas-limit and execution validity exceptions matter).
 
-## Coordination with EIP-8015 and EIP-8365
+## EIP-8015 and EIP-8365
 
-The shared Heze wire schema must already omit old deposit/eth1 fields to decode
-the official vectors. Its active-field masks and the removal of eth1 processing
-are therefore included in the second (FOCIL) commit as vector compatibility
-changes. The first, neutral foundation commit preserves the Gloas wire layout
-and rules. Do not re-add those fields to the final Heze SSZ.
+Heze state and block-body types contain none of the retired fields: eth1_data,
+eth1_data_votes, eth1_deposit_index, deposit_requests_start_index and body deposits.
+They are absent from the Rust types as well as SSZ and JSON. Shared state/body
+traits expose optional pre_heze capabilities; only Phase0 through Gloas implement
+the legacy traits. Electra bridge-index access is also restricted to pre-Heze states.
 
-Four old state fields and two block-body fields remain internal compatibility
-storage for the existing generic traits, marked serde(skip) and ssz(skip).
-They do not occur in Heze SSZ/JSON or its state/block roots. The EIP-8015 work
-should finish separating legacy eth1/deposit accessors from post-Heze traits,
-then remove that compatibility storage. Check the fork precondition and add
-dedicated EIP-8015 operation/fork vectors.
+upgrade_to_heze checks that eth1_deposit_index equals deposit_requests_start_index,
+preserves the remaining consensus fields and drops the retired ones. Heze block
+and epoch processing never call the Eth1 voting/reset paths. Genesis assembly
+uses the pre-Heze deposit mechanism internally, then upgrades to the actual Heze
+state and initializes the Heze genesis block-body root.
 
-The EIP-8365 work must update the Heze pending-deposit path to reject creating
-new BLS-withdrawal validators while preserving top-ups to existing validators.
-The inherited Gloas/Electra deposit behavior is intentionally unchanged here.
+Heze apply_pending_deposit skips a deposit whose public key is new and whose
+withdrawal credentials start with 0x00. The queue still consumes the deposit and
+its applicable churn; no refund or validator is created. Existing validators
+can still receive top-ups, including deposits with invalid signatures or different
+withdrawal credentials. Other prefixes follow the inherited proof-of-possession
+rules. The same restriction applies to deposits queued before the fork.
+Gloas retains its original behavior.
+
+This uses the pinned specification above. It does not establish compatibility
+with arbitrary heze-devnet-2 images or mutable unstable tags; that version
+alignment remains part of the later Kurtosis interoperability work.
 
 ## Networking dependency
 
@@ -85,13 +92,15 @@ focused GitHub workflow run it automatically.
 
 Run make test-heze. This executes:
 
-1. 20 unmodified official Heze state-transition reference cases:
-   the original 18 focused sanity cases plus one nonzero-bit builder-bid case per preset.
-2. Five unmodified official minimal Gloas sanity regressions from the same commit.
-3. Additional Rust regressions: tampered builder bits invalidate signatures;
-   upgrade/version/legacy-deposit precondition; list storage/timeliness/bounds;
-   real BLS fork/genesis/message binding; Python committee and SSZ oracle comparisons;
-   and actual Store fork-choice/optimistic-state behavior.
+1. 44 unmodified official Heze reference cases:
+   20 original sanity/builder-bid cases; 16 pending-deposit cases (10 minimal,
+   six mainnet); and eight Gloas-to-Heze fork cases (seven minimal, one mainnet).
+2. Six unmodified official minimal Gloas regressions, including creation of a
+   new BLS-withdrawal validator, which remains allowed before Heze.
+3. Additional Rust regressions: removed fields are absent from JSON and rejected
+   on input; legacy capabilities end at Gloas; Heze genesis assembly; tampered bid
+   signatures; fork preconditions; list storage, BLS signatures, committee/SSZ
+   oracle comparisons; and actual Store fork-choice/optimistic-state behavior.
 
 The two fixture inventories cover the original nine sanity cases per preset.
 Official vectors are generated in consensus-specs using pytest with --fork=heze
@@ -102,3 +111,30 @@ test-vectors/focil-oracle/SOURCE.md; they are not official pytest cases.
 
 First compilation includes Rust and networking dependencies. Once compiled, the
 focused cases themselves take well below a second on the local machine.
+
+
+## Additional official vector generation
+
+Use the same pytest command above, selecting these modules at the pinned revision:
+
+- test/heze/epoch_processing/test_process_pending_deposits.py:
+  all six tests, separately for minimal and mainnet with --fork=heze.
+- test/heze/fork/test_heze_fork_basic.py:
+  all seven minimal tests and mainnet test_fork_base_state.
+  Use BOTH --fork=gloas --fork=heze: these tests run on Gloas but emit Heze vectors.
+- test/electra/epoch_processing/pending_deposits/test_apply_pending_deposit.py:
+  minimal Heze tests for eth1_withdrawal_credentials,
+  compounding_withdrawal_credentials_max, non_versioned_withdrawal_credentials
+  and incorrect_sig_new_deposit (each prefixed test_apply_pending_deposit_).
+  The Gloas regression selects test_apply_pending_deposit_min_activation
+  with --fork=gloas and output test-vectors/gloas.
+
+The directory of an inherited Python test does not select its fork; --fork does.
+No Python test sources or expected post-states are modified.
+
+
+Heze reference tests are centralized in
+transition_functions/tests/heze_reference_vectors.rs against the pinned fixture
+directory. The copied Gloas unit-test scaffolding in the Heze modules was removed:
+it referenced Gloas state aliases and a different released vector schema, so it
+could not compile or validate Heze. The actual Gloas test modules are retained.
