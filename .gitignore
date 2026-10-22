@@ -26,3 +26,5 @@ exception.log
 .revmux/tasks/
 
 /test-vectors/reports/
+
+/test-vectors/eip8321/

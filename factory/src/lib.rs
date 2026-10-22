@@ -542,6 +542,9 @@ pub fn execution_payload<P: Preset>(
         Phase::Heze => {
             bail!("Heze payload construction requires the FOCIL execution-engine interface")
         }
+        Phase::Eip8321 => {
+            bail!("Eip8321 payload construction requires the FOCIL execution-engine interface")
+        }
         Phase::Phase0 | Phase::Altair => bail!("slot should be post-Bellatrix"),
         Phase::Bellatrix => BellatrixExecutionPayload {
             parent_hash,
@@ -674,6 +677,9 @@ fn block_with_parent_payload<P: Preset>(
     let without_state_root = match advanced_state.phase() {
         Phase::Heze => {
             bail!("use Heze block types and the FOCIL bid when constructing a Heze block")
+        }
+        Phase::Eip8321 => {
+            bail!("use Eip8321 block types and the FOCIL bid when constructing a Eip8321 block")
         }
         Phase::Phase0 => BeaconBlock::from(Hc::new(Phase0BeaconBlock {
             slot,

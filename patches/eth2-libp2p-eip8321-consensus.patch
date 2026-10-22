@@ -1,0 +1,275 @@
+--- a/src/config.rs
++++ b/src/config.rs
+@@ -475,7 +475,8 @@
+             | Phase::Electra
+             | Phase::Fulu
+             | Phase::Gloas
+-            | Phase::Heze => {
++            | Phase::Heze
++            | Phase::Eip8321 => {
+                 let topic_len_bytes = topic_bytes.len().to_le_bytes();
+                 let mut vec = Vec::with_capacity(
+                     prefix.len() + topic_len_bytes.len() + topic_bytes.len() + message.data.len(),
+--- a/src/rpc/codec.rs
++++ b/src/rpc/codec.rs
+@@ -736,7 +736,7 @@
+             SignedBeaconBlock::Phase0(Phase0SignedBeaconBlock::from_ssz_default(decoded_buffer)?),
+         )))),
+         SupportedProtocol::BlobsByRangeV1 => match fork_name {
+-            Some(Phase::Heze) => return Err(RPCError::UnsupportedProtocol),
++            Some(Phase::Heze | Phase::Eip8321) => return Err(RPCError::UnsupportedProtocol),
+             Some(Phase::Deneb | Phase::Electra | Phase::Fulu | Phase::Gloas) => {
+                 Ok(Some(RpcSuccessResponse::BlobsByRange(Arc::new(
+                     BlobSidecar::from_ssz_default(decoded_buffer)?,
+@@ -757,7 +757,7 @@
+             )),
+         },
+         SupportedProtocol::BlobsByRootV1 => match fork_name {
+-            Some(Phase::Heze) => return Err(RPCError::UnsupportedProtocol),
++            Some(Phase::Heze | Phase::Eip8321) => return Err(RPCError::UnsupportedProtocol),
+             Some(Phase::Deneb | Phase::Electra | Phase::Fulu | Phase::Gloas) => {
+                 Ok(Some(RpcSuccessResponse::BlobsByRoot(Arc::new(
+                     BlobSidecar::from_ssz_default(decoded_buffer)?,
+@@ -778,7 +778,7 @@
+             )),
+         },
+         SupportedProtocol::DataColumnsByRootV1 => match fork_name {
+-            Some(Phase::Heze) => {
++            Some(Phase::Heze | Phase::Eip8321) => {
+                 return Err(RPCError::InvalidData(
+                     "Heze networking is not implemented in the consensus-only branch".into(),
+                 ));
+@@ -809,7 +809,7 @@
+             )),
+         },
+         SupportedProtocol::DataColumnsByRangeV1 => match fork_name {
+-            Some(Phase::Heze) => {
++            Some(Phase::Heze | Phase::Eip8321) => {
+                 return Err(RPCError::InvalidData(
+                     "Heze networking is not implemented in the consensus-only branch".into(),
+                 ));
+@@ -840,7 +840,7 @@
+             )),
+         },
+         SupportedProtocol::ExecutionPayloadEnvelopesByRangeV1 => match fork_name {
+-            Some(Phase::Heze) => {
++            Some(Phase::Heze | Phase::Eip8321) => {
+                 return Err(RPCError::InvalidData(
+                     "Heze networking is not implemented in the consensus-only branch".into(),
+                 ));
+@@ -871,7 +871,7 @@
+             )),
+         },
+         SupportedProtocol::ExecutionPayloadEnvelopesByRootV1 => match fork_name {
+-            Some(Phase::Heze) => {
++            Some(Phase::Heze | Phase::Eip8321) => {
+                 return Err(RPCError::InvalidData(
+                     "Heze networking is not implemented in the consensus-only branch".into(),
+                 ));
+@@ -939,7 +939,7 @@
+                     .map(LightClientBootstrap::Fulu)
+                     .map(Arc::new)?,
+             ))),
+-            Some(Phase::Heze) => {
++            Some(Phase::Heze | Phase::Eip8321) => {
+                 return Err(RPCError::InvalidData(
+                     "Heze networking is not implemented in the consensus-only branch".into(),
+                 ));
+@@ -991,7 +991,7 @@
+                     .map(LightClientOptimisticUpdate::Fulu)
+                     .map(Arc::new)?,
+             ))),
+-            Some(Phase::Heze) => {
++            Some(Phase::Heze | Phase::Eip8321) => {
+                 return Err(RPCError::InvalidData(
+                     "Heze networking is not implemented in the consensus-only branch".into(),
+                 ));
+@@ -1041,7 +1041,7 @@
+                     .map(LightClientFinalityUpdate::Fulu)
+                     .map(Arc::new)?,
+             ))),
+-            Some(Phase::Heze) => {
++            Some(Phase::Heze | Phase::Eip8321) => {
+                 return Err(RPCError::InvalidData(
+                     "Heze networking is not implemented in the consensus-only branch".into(),
+                 ));
+@@ -1091,7 +1091,7 @@
+                     .map(LightClientUpdate::Fulu)
+                     .map(Arc::new)?,
+             ))),
+-            Some(Phase::Heze) => {
++            Some(Phase::Heze | Phase::Eip8321) => {
+                 return Err(RPCError::InvalidData(
+                     "Heze networking is not implemented in the consensus-only branch".into(),
+                 ));
+@@ -1148,7 +1148,7 @@
+             Some(Phase::Fulu) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
+                 SignedBeaconBlock::Fulu(FuluSignedBeaconBlock::from_ssz_default(decoded_buffer)?),
+             )))),
+-            Some(Phase::Heze) => {
++            Some(Phase::Heze | Phase::Eip8321) => {
+                 return Err(RPCError::InvalidData(
+                     "Heze networking is not implemented in the consensus-only branch".into(),
+                 ));
+@@ -1196,7 +1196,7 @@
+             Some(Phase::Fulu) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
+                 SignedBeaconBlock::Fulu(FuluSignedBeaconBlock::from_ssz_default(decoded_buffer)?),
+             )))),
+-            Some(Phase::Heze) => {
++            Some(Phase::Heze | Phase::Eip8321) => {
+                 return Err(RPCError::InvalidData(
+                     "Heze networking is not implemented in the consensus-only branch".into(),
+                 ));
+--- a/src/rpc/protocol.rs
++++ b/src/rpc/protocol.rs
+@@ -135,7 +135,8 @@
+         | Phase::Electra
+         | Phase::Fulu
+         | Phase::Gloas
+-        | Phase::Heze => RpcLimits::new(
++        | Phase::Heze
++        | Phase::Eip8321 => RpcLimits::new(
+             altair_fixed_len,
+             altair_fixed_len + P::MaxExtraDataBytes::USIZE * u8::SIZE.get(),
+         ),
+@@ -153,7 +154,8 @@
+         | Phase::Electra
+         | Phase::Fulu
+         | Phase::Gloas
+-        | Phase::Heze => RpcLimits::new(
++        | Phase::Heze
++        | Phase::Eip8321 => RpcLimits::new(
+             altair_fixed_len,
+             altair_fixed_len + P::MaxExtraDataBytes::USIZE * u8::SIZE.get(),
+         ),
+@@ -171,7 +173,8 @@
+         | Phase::Electra
+         | Phase::Fulu
+         | Phase::Gloas
+-        | Phase::Heze => RpcLimits::new(
++        | Phase::Heze
++        | Phase::Eip8321 => RpcLimits::new(
+             altair_fixed_len,
+             altair_fixed_len + P::MaxExtraDataBytes::USIZE * u8::SIZE.get(),
+         ),
+@@ -189,7 +192,8 @@
+         | Phase::Electra
+         | Phase::Fulu
+         | Phase::Gloas
+-        | Phase::Heze => RpcLimits::new(
++        | Phase::Heze
++        | Phase::Eip8321 => RpcLimits::new(
+             altair_fixed_len,
+             altair_fixed_len + P::MaxExtraDataBytes::USIZE * u8::SIZE.get(),
+         ),
+--- a/src/types/pubsub.rs
++++ b/src/types/pubsub.rs
+@@ -224,7 +224,7 @@
+                                         .map_err(|e| format!("{:?}", e))?,
+                                 )
+                             }
+-                            Some(Phase::Heze) => return Err(
++                            Some(Phase::Heze | Phase::Eip8321) => return Err(
+                                 "Heze networking is not implemented in the consensus-only branch"
+                                     .into(),
+                             ),
+@@ -260,7 +260,7 @@
+                                     Arc::new(attestation),
+                                 ))
+                             }
+-                            Some(Phase::Heze) => return Err(
++                            Some(Phase::Heze | Phase::Eip8321) => return Err(
+                                 "Heze networking is not implemented in the consensus-only branch"
+                                     .into(),
+                             ),
+@@ -313,7 +313,7 @@
+                                 FuluSignedBeaconBlock::from_ssz_default(data)
+                                     .map_err(|e| format!("{:?}", e))?,
+                             ),
+-                            Some(Phase::Heze) => return Err(
++                            Some(Phase::Heze | Phase::Eip8321) => return Err(
+                                 "Heze networking is not implemented in the consensus-only branch"
+                                     .into(),
+                             ),
+@@ -332,7 +332,7 @@
+                     }
+                     GossipKind::DataColumnSidecar(subnet_id) => {
+                         match fork_context.get_fork_from_context_bytes(gossip_topic.fork_digest) {
+-                            Some(Phase::Heze) => return Err(
++                            Some(Phase::Heze | Phase::Eip8321) => return Err(
+                                 "Heze networking is not implemented in the consensus-only branch"
+                                     .into(),
+                             ),
+@@ -414,7 +414,7 @@
+                                 ElectraAttesterSlashing::from_ssz_default(data)
+                                     .map_err(|e| format!("{:?}", e))?,
+                             ),
+-                            Some(Phase::Heze) => return Err(
++                            Some(Phase::Heze | Phase::Eip8321) => return Err(
+                                 "Heze networking is not implemented in the consensus-only branch"
+                                     .into(),
+                             ),
+@@ -487,7 +487,7 @@
+                                 .map(LightClientFinalityUpdate::Fulu)
+                                 .map_err(|e| format!("{:?}", e))?
+                                 .into(),
+-                            Some(Phase::Heze) => return Err(
++                            Some(Phase::Heze | Phase::Eip8321) => return Err(
+                                 "Heze networking is not implemented in the consensus-only branch"
+                                     .into(),
+                             ),
+@@ -534,7 +534,7 @@
+                             Some(Phase::Fulu) => SszReadDefault::from_ssz_default(data)
+                                 .map(LightClientOptimisticUpdate::Fulu)
+                                 .map_err(|e| format!("{:?}", e))?,
+-                            Some(Phase::Heze) => return Err(
++                            Some(Phase::Heze | Phase::Eip8321) => return Err(
+                                 "Heze networking is not implemented in the consensus-only branch"
+                                     .into(),
+                             ),
+@@ -555,7 +555,7 @@
+                     }
+                     GossipKind::ExecutionPayloadBid => {
+                         match fork_context.get_fork_from_context_bytes(gossip_topic.fork_digest) {
+-                            Some(Phase::Heze) => return Err(
++                            Some(Phase::Heze | Phase::Eip8321) => return Err(
+                                 "Heze networking is not implemented in the consensus-only branch"
+                                     .into(),
+                             ),
+@@ -583,7 +583,7 @@
+                     }
+                     GossipKind::ExecutionPayload => {
+                         match fork_context.get_fork_from_context_bytes(gossip_topic.fork_digest) {
+-                            Some(Phase::Heze) => return Err(
++                            Some(Phase::Heze | Phase::Eip8321) => return Err(
+                                 "Heze networking is not implemented in the consensus-only branch"
+                                     .into(),
+                             ),
+@@ -611,7 +611,7 @@
+                     }
+                     GossipKind::PayloadAttestationMessage => {
+                         match fork_context.get_fork_from_context_bytes(gossip_topic.fork_digest) {
+-                            Some(Phase::Heze) => return Err(
++                            Some(Phase::Heze | Phase::Eip8321) => return Err(
+                                 "Heze networking is not implemented in the consensus-only branch"
+                                     .into(),
+                             ),
+@@ -641,7 +641,7 @@
+                     }
+                     GossipKind::ProposerPreferences => {
+                         match fork_context.get_fork_from_context_bytes(gossip_topic.fork_digest) {
+-                            Some(Phase::Heze) => return Err(
++                            Some(Phase::Heze | Phase::Eip8321) => return Err(
+                                 "Heze networking is not implemented in the consensus-only branch"
+                                     .into(),
+                             ),
+--- a/src/types/fork_context.rs
++++ b/src/types/fork_context.rs
+@@ -211,6 +211,7 @@
+
+     fn make_chain_config() -> Arc<Config> {
+         let mut chain_config = Config::mainnet().rapid_upgrade();
++        chain_config.eip8321_fork_epoch = types::phase0::consts::FAR_FUTURE_EPOCH;
+         chain_config.blob_schedule = vec![
+             BlobScheduleEntry::new(6, 12),
+             BlobScheduleEntry::new(50, 24),

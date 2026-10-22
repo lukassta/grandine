@@ -335,3 +335,7 @@ prepare-heze-dependencies:
 	bash scripts/prepare_heze_dependencies.sh
 
 check build test minimal release: prepare-heze-dependencies
+
+.PHONY: test-eip8321
+test-eip8321:
+	bash scripts/test_eip8321.sh all

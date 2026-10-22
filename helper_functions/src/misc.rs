@@ -759,7 +759,9 @@ pub fn construct_blob_sidecar<P: Preset>(
         SignedBeaconBlock::Fulu(block) => {
             electra_kzg_commitment_inclusion_proof(&block.message.body, index)?
         }
-        SignedBeaconBlock::Gloas(_) | SignedBeaconBlock::Heze(_) => {
+        SignedBeaconBlock::Gloas(_)
+        | SignedBeaconBlock::Heze(_)
+        | SignedBeaconBlock::Eip8321(_) => {
             let message = block.message();
 
             return Err(Error::BlobsForPostGloasBlock {

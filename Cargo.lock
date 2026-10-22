@@ -16980,6 +16980,7 @@ dependencies = [
  "anyhow",
  "arithmetic",
  "bit_field",
+ "blake3",
  "bls",
  "derive_more 2.1.1",
  "duplicate",

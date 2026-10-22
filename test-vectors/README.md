@@ -45,3 +45,11 @@ invalid_incorrect_state_root and invalid_all_zeroed_sig.
 Additional EIP-8015/EIP-8365 generation commands and exact selections are documented
 in ../docs/HEZE_FOCIL.md. Fork vectors need --fork=gloas --fork=heze because their
 input phase differs from their output phase.
+
+## EIP-8321
+
+The SHA-256-pinned eip8321-vectors.tar.gz contains 368 unmodified official
+state-transition cases from EIP8321_SOURCE_COMMIT. EIP8321_INVENTORY.json
+lists the selected categories and exact counts. Run make test-eip8321;
+see ../docs/EIP8321.md for scope, regeneration, provenance and the known
+upstream mainnet lifecycle generator failure.

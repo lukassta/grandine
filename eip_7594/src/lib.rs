@@ -388,6 +388,11 @@ pub fn construct_data_column_sidecars<P: Preset>(
             block.message.slot(),
             cells_and_kzg_proofs,
         ),
+        SignedBeaconBlock::Eip8321(block) => get_data_column_sidecars_post_gloas(
+            block.message.hash_tree_root(),
+            block.message.slot(),
+            cells_and_kzg_proofs,
+        ),
     }
 }
 

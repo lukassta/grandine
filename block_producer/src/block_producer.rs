@@ -546,6 +546,12 @@ impl<P: Preset, W: Wait> BlockProducer<P, W> {
                 state,
                 exit,
             ),
+            BeaconState::Eip8321(state) => electra::validate_voluntary_exit(
+                &self.producer_context.chain_config,
+                &self.producer_context.pubkey_cache,
+                state,
+                exit,
+            ),
         };
 
         let outcome = match result {
@@ -985,6 +991,9 @@ impl<P: Preset, W: Wait> BlockBuildContext<P, W> {
         let result = match phase {
             Phase::Heze => {
                 bail!("Heze proposal requires the FOCIL proposer/Engine API integration")
+            }
+            Phase::Eip8321 => {
+                bail!("Eip8321 proposal requires the FOCIL proposer/Engine API integration")
             }
             Phase::Phase0 => BeaconBlock::from(Hc::new(Phase0BeaconBlock {
                 slot,
@@ -1791,6 +1800,12 @@ impl<P: Preset, W: Wait> BlockBuildContext<P, W> {
                     state,
                     *voluntary_exit,
                 ),
+                BeaconState::Eip8321(state) => electra::validate_voluntary_exit(
+                    &self.producer_context.chain_config,
+                    &self.producer_context.pubkey_cache,
+                    state,
+                    *voluntary_exit,
+                ),
             }
             .is_ok()
         });
@@ -1988,6 +2003,9 @@ impl<P: Preset, W: Wait> BlockBuildContext<P, W> {
         let payload_attributes = match state {
             BeaconState::Heze(_) => {
                 bail!("Heze payload attributes require inclusion-list transactions")
+            }
+            BeaconState::Eip8321(_) => {
+                bail!("Eip8321 payload attributes require inclusion-list transactions")
             }
             BeaconState::Phase0(_) | BeaconState::Altair(_) => return Ok(None),
             BeaconState::Bellatrix(_) => PayloadAttributes::Bellatrix(PayloadAttributesV1 {

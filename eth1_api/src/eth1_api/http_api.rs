@@ -404,6 +404,7 @@ impl Eth1Api {
             payload_status,
         } = match phase {
             Phase::Heze => bail!("Heze FOCIL Engine API integration is not implemented"),
+            Phase::Eip8321 => bail!("Eip8321 FOCIL Engine API integration is not implemented"),
             Phase::Bellatrix => {
                 self.execute(
                     ENGINE_FORKCHOICE_UPDATED_V1,
@@ -447,7 +448,7 @@ impl Eth1Api {
             _ => {
                 // This match arm will silently match any new phases.
                 // Cause a compilation error if a new phase is added.
-                const_assert_eq!(Phase::CARDINALITY, 9);
+                const_assert_eq!(Phase::CARDINALITY, 10);
 
                 bail!(Error::PhasePreBellatrix)
             }
@@ -455,6 +456,7 @@ impl Eth1Api {
 
         let payload_id = match phase {
             Phase::Heze => bail!("Heze FOCIL Engine API integration is not implemented"),
+            Phase::Eip8321 => bail!("Eip8321 FOCIL Engine API integration is not implemented"),
             Phase::Bellatrix => payload_id.map(PayloadId::Bellatrix),
             Phase::Capella => payload_id.map(PayloadId::Capella),
             Phase::Deneb => payload_id.map(PayloadId::Deneb),
@@ -464,7 +466,7 @@ impl Eth1Api {
             _ => {
                 // This match arm will silently match any new phases.
                 // Cause a compilation error if a new phase is added.
-                const_assert_eq!(Phase::CARDINALITY, 9);
+                const_assert_eq!(Phase::CARDINALITY, 10);
 
                 bail!(Error::PhasePreBellatrix)
             }

@@ -32,7 +32,7 @@ use types::{
 
 use crate::{
     altair::{self, EpochReport as AltairEpochReport, Statistics as AltairStatistics},
-    bellatrix, capella, deneb, electra, fulu, gloas, heze,
+    bellatrix, capella, deneb, eip8321, electra, fulu, gloas, heze,
     phase0::{
         self, EpochReport as Phase0EpochReport, StatisticsForReport, StatisticsForTransition,
     },
@@ -296,10 +296,22 @@ pub fn custom_state_transition<P: Preset>(
             verifier,
             slot_report,
         ),
+        (BeaconState::Eip8321(state), SignedBeaconBlock::Eip8321(block)) => {
+            eip8321::state_transition(
+                config,
+                pubkey_cache,
+                state,
+                block,
+                process_slots,
+                state_root_policy,
+                verifier,
+                slot_report,
+            )
+        }
         (state, block) => {
             // This match arm will silently match any new phases.
             // Cause a compilation error if a new phase is added.
-            const_assert_eq!(Phase::CARDINALITY, 9);
+            const_assert_eq!(Phase::CARDINALITY, 10);
 
             bail!(PhaseError {
                 block_phase: block.phase(),
@@ -408,7 +420,7 @@ fn custom_blinded_state_transition<P: Preset, V: Verifier>(
         (state, _) => {
             // This match arm will silently match any new phases.
             // Cause a compilation error if a new phase is added.
-            const_assert_eq!(Phase::CARDINALITY, 9);
+            const_assert_eq!(Phase::CARDINALITY, 10);
 
             bail!(PhaseError {
                 block_phase: signed_block.phase(),
@@ -486,10 +498,13 @@ pub fn verify_signatures<P: Preset>(
         (BeaconState::Heze(state), SignedBeaconBlock::Heze(block)) => {
             heze::verify_signatures(config, pubkey_cache, state, block, verifier)
         }
+        (BeaconState::Eip8321(state), SignedBeaconBlock::Eip8321(block)) => {
+            eip8321::verify_signatures(config, pubkey_cache, state, block, verifier)
+        }
         _ => {
             // This match arm will silently match any new phases.
             // Cause a compilation error if a new phase is added.
-            const_assert_eq!(Phase::CARDINALITY, 9);
+            const_assert_eq!(Phase::CARDINALITY, 10);
 
             bail!(PhaseError {
                 block_phase: block.phase(),
@@ -710,9 +725,23 @@ pub fn process_slots<P: Preset>(
                 }
             }
             BeaconState::Heze(heze_state) => {
+                let fork_slot = config.fork_slot::<P>(Phase::Eip8321);
+                let last_slot = Toption::Some(slot)
+                    .min(fork_slot)
+                    .expect("requested slot is finite");
+                if heze_state.slot < last_slot {
+                    heze::process_slots(config, pubkey_cache, heze_state, last_slot)?;
+                    made_progress = true;
+                }
+                if Toption::Some(last_slot) == fork_slot {
+                    *state = fork::upgrade_to_eip8321(config, heze_state.as_ref().clone())?.into();
+                    made_progress = true;
+                }
+            }
+            BeaconState::Eip8321(heze_state) => {
                 // When adding a new phase, please make sure that last processed slot here
                 // is not farther ahead than the last slot in the phase
-                heze::process_slots(config, pubkey_cache, heze_state, slot)?;
+                eip8321::process_slots(config, pubkey_cache, heze_state, slot)?;
 
                 made_progress = true;
             }
@@ -765,6 +794,10 @@ pub fn process_justification_and_finalization(state: &mut BeaconState<impl Prese
             let statistics = altair::statistics(state)?;
             altair::process_justification_and_finalization(state, statistics)?;
         }
+        BeaconState::Eip8321(state) => {
+            let statistics = altair::statistics(state)?;
+            altair::process_justification_and_finalization(state, statistics)?;
+        }
     }
 
     Ok(())
@@ -785,6 +818,7 @@ pub fn process_epoch(
         BeaconState::Fulu(state) => fulu::process_epoch(config, pubkey_cache, state),
         BeaconState::Gloas(state) => gloas::process_epoch(config, pubkey_cache, state),
         BeaconState::Heze(state) => heze::process_epoch(config, pubkey_cache, state),
+        BeaconState::Eip8321(state) => eip8321::process_epoch(config, pubkey_cache, state),
     }
 }
 
@@ -807,6 +841,7 @@ pub fn epoch_report(
         BeaconState::Fulu(state) => electra::epoch_report(config, pubkey_cache, state)?.into(),
         BeaconState::Gloas(state) => electra::epoch_report(config, pubkey_cache, state)?.into(),
         BeaconState::Heze(state) => electra::epoch_report(config, pubkey_cache, state)?.into(),
+        BeaconState::Eip8321(state) => electra::epoch_report(config, pubkey_cache, state)?.into(),
     };
 
     post_process_slots_for_epoch_report(config, pubkey_cache, state)?;
@@ -913,7 +948,12 @@ fn post_process_slots_for_epoch_report<P: Preset>(
                     *state = fork::upgrade_to_heze(config, pre.as_ref().clone())?.into();
                 }
             }
-            BeaconState::Heze(_) => {}
+            BeaconState::Heze(pre) => {
+                if config.fork_slot::<P>(Phase::Eip8321) == Toption::Some(pre.slot) {
+                    *state = fork::upgrade_to_eip8321(config, pre.as_ref().clone())?.into();
+                }
+            }
+            BeaconState::Eip8321(_) => {}
         }
     }
 
@@ -994,10 +1034,13 @@ fn process_block<P: Preset>(
         (BeaconState::Heze(state), BeaconBlock::Heze(block)) => {
             heze::process_block(config, pubkey_cache, state, block, verifier, slot_report)
         }
+        (BeaconState::Eip8321(state), BeaconBlock::Eip8321(block)) => {
+            eip8321::process_block(config, pubkey_cache, state, block, verifier, slot_report)
+        }
         (state, _) => {
             // This match arm will silently match any new phases.
             // Cause a compilation error if a new phase is added.
-            const_assert_eq!(Phase::CARDINALITY, 9);
+            const_assert_eq!(Phase::CARDINALITY, 10);
 
             bail!(PhaseError {
                 block_phase: block.phase(),
@@ -1044,10 +1087,13 @@ pub fn process_block_for_gossip<P: Preset>(
         (BeaconState::Heze(state), SignedBeaconBlock::Heze(block)) => {
             heze::process_block_for_gossip(config, pubkey_cache, state, block)
         }
+        (BeaconState::Eip8321(state), SignedBeaconBlock::Eip8321(block)) => {
+            eip8321::process_block_for_gossip(config, pubkey_cache, state, block)
+        }
         (state, _) => {
             // This match arm will silently match any new phases.
             // Cause a compilation error if a new phase is added.
-            const_assert_eq!(Phase::CARDINALITY, 9);
+            const_assert_eq!(Phase::CARDINALITY, 10);
 
             bail!(PhaseError {
                 block_phase: block.phase(),
@@ -1160,7 +1206,7 @@ fn process_blinded_block<P: Preset>(
         (state, _) => {
             // This match arm will silently match any new phases.
             // Cause a compilation error if a new phase is added.
-            const_assert_eq!(Phase::CARDINALITY, 9);
+            const_assert_eq!(Phase::CARDINALITY, 10);
 
             bail!(PhaseError {
                 block_phase: block.phase(),
@@ -1211,6 +1257,9 @@ pub fn process_deposit_data(
             electra::process_deposit_data(config, pubkey_cache, state, deposit_data)
         }
         BeaconState::Heze(_) => anyhow::bail!("legacy deposit processing was removed in Heze"),
+        BeaconState::Eip8321(_) => {
+            anyhow::bail!("legacy deposit processing was removed in Eip8321")
+        }
     }
 }
 
@@ -1229,6 +1278,7 @@ pub fn statistics<P: Preset>(state: &BeaconState<P>) -> Result<Statistics> {
         BeaconState::Fulu(state) => altair::statistics(state)?.into(),
         BeaconState::Gloas(state) => altair::statistics(state)?.into(),
         BeaconState::Heze(state) => altair::statistics(state)?.into(),
+        BeaconState::Eip8321(state) => altair::statistics(state)?.into(),
     };
 
     Ok(statistics)

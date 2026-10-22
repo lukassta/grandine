@@ -2353,7 +2353,7 @@ pub async fn pool_attester_slashings_v2<P: Preset, W: Wait>(
             .filter_map(AttesterSlashing::post_electra)
             .map(|slashing| AttesterSlashing::Electra(slashing))
             .collect(),
-        Phase::Gloas | Phase::Heze => slashings
+        Phase::Gloas | Phase::Heze | Phase::Eip8321 => slashings
             .into_iter()
             .filter_map(AttesterSlashing::post_gloas)
             .map(|slashing| AttesterSlashing::Gloas(slashing))

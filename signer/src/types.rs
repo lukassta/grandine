@@ -17,6 +17,7 @@ use types::{
     deneb::containers::{
         BeaconBlock as DenebBeaconBlock, BlindedBeaconBlock as DenebBlindedBeaconBlock,
     },
+    eip8321::containers::BeaconBlock as Eip8321BeaconBlock,
     electra::containers::{
         BeaconBlock as ElectraBeaconBlock, BlindedBeaconBlock as ElectraBlindedBeaconBlock,
     },
@@ -174,6 +175,13 @@ impl<P: Preset> From<&Hc<HezeBeaconBlock<P>>> for SigningMessage<'_, P> {
     }
 }
 
+impl<P: Preset> From<&Hc<Eip8321BeaconBlock<P>>> for SigningMessage<'_, P> {
+    fn from(block: &Hc<Eip8321BeaconBlock<P>>) -> Self {
+        let block_header = block.to_header();
+        Self::BeaconBlock(SigningBlock::Eip8321 { block_header })
+    }
+}
+
 impl<'block, P: Preset> From<&'block CombinedBeaconBlock<P>> for SigningMessage<'block, P> {
     fn from(block: &'block CombinedBeaconBlock<P>) -> Self {
         match block {
@@ -186,6 +194,7 @@ impl<'block, P: Preset> From<&'block CombinedBeaconBlock<P>> for SigningMessage<
             CombinedBeaconBlock::Fulu(block) => block.into(),
             CombinedBeaconBlock::Gloas(block) => block.into(),
             CombinedBeaconBlock::Heze(block) => block.into(),
+            CombinedBeaconBlock::Eip8321(block) => block.into(),
         }
     }
 }
@@ -234,6 +243,7 @@ pub enum SigningBlock<'block, P: Preset> {
     Fulu { block_header: BeaconBlockHeader },
     Gloas { block_header: BeaconBlockHeader },
     Heze { block_header: BeaconBlockHeader },
+    Eip8321 { block_header: BeaconBlockHeader },
 }
 
 impl<P: Preset> SigningBlock<'_, P> {
@@ -247,7 +257,8 @@ impl<P: Preset> SigningBlock<'_, P> {
             | SigningBlock::Electra { block_header }
             | SigningBlock::Fulu { block_header }
             | SigningBlock::Gloas { block_header }
-            | SigningBlock::Heze { block_header } => block_header.slot,
+            | SigningBlock::Heze { block_header }
+            | SigningBlock::Eip8321 { block_header } => block_header.slot,
         }
     }
 }
