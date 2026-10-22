@@ -80,7 +80,11 @@ The pinned eth2_libp2p submodule has exhaustive matches over Phase. Adding a
 phase requires a compatibility change even for compiling the consensus store.
 patches/eth2-libp2p-heze-consensus.patch adds explicit Heze handling: live Heze
 messages return unsupported errors, instead of being decoded as Gloas.
-The submodule reference is unchanged; no unpublished child-repository commit is
+patches/eth2-libp2p-heze-fork-context-tests.patch updates the runtime fork-digest
+regression to assert Gloas -> Heze -> BPO transitions before the final zero digest.
+This is a networking unit-test adaptation, not a modification to official vectors.
+The patches apply independently, so existing checkouts with the first patch can
+upgrade safely. The submodule reference is unchanged; no unpublished child-repository commit is
 required. This is not a live-network FOCIL implementation.
 
 Run bash scripts/prepare_heze_dependencies.sh after a fresh recursive checkout

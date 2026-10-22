@@ -1,0 +1,43 @@
+diff --git a/src/types/fork_context.rs b/src/types/fork_context.rs
+index e7ef242..9edb7f6 100644
+--- a/src/types/fork_context.rs
++++ b/src/types/fork_context.rs
+@@ -285,16 +285,33 @@ mod tests {
+
+         let context = ForkContext::new::<Mainnet>(&chain_config, gloas_slot, genesis_root);
+
+-        // Before: next fork exists (BPO at epoch 50)
++        // Heze follows Gloas in the named-fork schedule.
++        let heze_digest =
++            misc::compute_fork_digest(&chain_config, genesis_root, chain_config.heze_fork_epoch);
++        assert_eq!(
++            context.next_fork(),
++            Some((Phase::Heze, heze_digest, chain_config.heze_fork_epoch))
++        );
++        assert_eq!(context.next_fork_digest(), heze_digest);
++
++        context.update_current_fork(); // Gloas → Heze
++        assert_eq!(context.current_fork_name(), Phase::Heze);
++        assert_eq!(context.current_fork_epoch(), chain_config.heze_fork_epoch);
++
++        // The next transitions are the existing BPO forks.
+         let bpo_50_digest = misc::compute_fork_digest(&chain_config, genesis_root, 50);
+         assert_eq!(context.next_fork_digest(), bpo_50_digest);
++        context.update_current_fork(); // Heze → BPO epoch 50
++        assert_eq!(context.current_fork_epoch(), 50);
+
+-        // Simulate runtime transitions to the last BPO fork (epoch 100)
+-        context.update_current_fork(); // epoch 7 → 50
+-        context.update_current_fork(); // epoch 50 → 100
++        let bpo_100_digest = misc::compute_fork_digest(&chain_config, genesis_root, 100);
++        assert_eq!(context.next_fork_digest(), bpo_100_digest);
++        context.update_current_fork(); // BPO epoch 50 → 100
++        assert_eq!(context.current_fork_epoch(), 100);
+
+-        // After: no next fork — must return zero bytes per spec
++        // No next fork after the last BPO epoch: zero digest and no next-fork entry.
+         assert_eq!(context.next_fork_digest(), ForkDigest::default());
++        assert!(context.next_fork().is_none());
+     }
+
+     #[test]
