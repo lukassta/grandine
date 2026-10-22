@@ -907,7 +907,7 @@ pub fn process_operations<P: Preset, V: Verifier>(
     ensure_operation_count::<P>(
         "RANDAO commitment registrations",
         body.randao_commitment_registrations.len(),
-        types::eip8321::consts::MAX_RANDAO_COMMITMENT_REGISTRATIONS,
+        P::MAX_RANDAO_COMMITMENT_REGISTRATIONS,
     )?;
     // > [New in Gloas:EIP7688] Progressive lists are unbounded at the SSZ level.
     // > Operation counts are validated during processing instead.
@@ -1398,7 +1398,6 @@ pub fn process_randao_commitment_registration<P: Preset>(
     mut verifier: impl Verifier,
 ) -> Result<()> {
     use helper_functions::signing::SignForAllForksWithGenesis as _;
-    use types::eip8321::consts::COMMITMENT_REGISTRATION_DELAY;
     let message = &registration.message;
     let index = message.validator_index;
     ensure!(
@@ -1428,7 +1427,7 @@ pub fn process_randao_commitment_registration<P: Preset>(
         .push(types::eip8321::containers::PendingRandaoCommitment {
             validator_index: index,
             commitment: message.commitment,
-            activation_epoch: get_current_epoch(state).try_add(COMMITMENT_REGISTRATION_DELAY)?,
+            activation_epoch: get_current_epoch(state).try_add(P::COMMITMENT_REGISTRATION_DELAY)?,
         })?;
     Ok(())
 }
