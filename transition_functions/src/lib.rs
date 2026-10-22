@@ -253,3 +253,19 @@ pub mod gloas {
     mod slot_processing;
     mod state_transition;
 }
+
+pub mod heze {
+    pub use block_processing::{apply_parent_execution_payload, get_expected_withdrawals};
+
+    pub(crate) use block_processing::{process_block, process_block_for_gossip};
+    pub(crate) use epoch_processing::process_epoch;
+    pub(crate) use slot_processing::process_slots;
+    pub(crate) use state_transition::{state_transition, verify_signatures};
+
+    mod block_processing;
+    mod epoch_intermediates;
+    mod epoch_processing;
+    mod execution_payload_processing;
+    mod slot_processing;
+    mod state_transition;
+}

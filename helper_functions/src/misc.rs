@@ -31,6 +31,7 @@ use types::{
         primitives::{BlobCommitmentsInclusionProof, ColumnIndex},
     },
     gloas::{consts::BUILDER_INDEX_FLAG, primitives::BuilderIndex},
+    heze::{consts::BUILDER_INDEX_FLAG, primitives::BuilderIndex},
     nonstandard::{PartialValidator, StorageMode},
     phase0::{
         consts::{
@@ -759,7 +760,7 @@ pub fn construct_blob_sidecar<P: Preset>(
         SignedBeaconBlock::Fulu(block) => {
             electra_kzg_commitment_inclusion_proof(&block.message.body, index)?
         }
-        SignedBeaconBlock::Gloas(_) => {
+        SignedBeaconBlock::Gloas(_) | SignedBeaconBlock::Heze(_) => {
             let message = block.message();
 
             return Err(Error::BlobsForPostGloasBlock {

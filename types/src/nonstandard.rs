@@ -87,6 +87,7 @@ pub enum Phase {
     Electra,
     Fulu,
     Gloas,
+    Heze,
 }
 
 impl Phase {

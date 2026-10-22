@@ -212,6 +212,29 @@ struct ViableHeadRootAndWeight {
     ["consensus-spec-tests/tests/minimal/gloas/fork_choice/payload_timeliness/*/*"]             [gloas_minimal_payload_timeliness]             [Minimal] [Gloas];
     ["consensus-spec-tests/tests/minimal/gloas/fork_choice/reorg/*/*"]                          [gloas_minimal_reorg]                          [Minimal] [Gloas];
     ["consensus-spec-tests/tests/minimal/gloas/fork_choice/withholding/*/*"]                    [gloas_minimal_withholding]                    [Minimal] [Gloas];
+    ["consensus-spec-tests/tests/mainnet/heze/fork_choice/ex_ante/*/*"]                        [heze_mainnet_ex_ante]                        [Mainnet] [Heze];
+    ["consensus-spec-tests/tests/mainnet/heze/fork_choice/get_head/*/*"]                       [heze_mainnet_get_head]                       [Mainnet] [Heze];
+    ["consensus-spec-tests/tests/mainnet/heze/fork_choice/get_parent_payload_status/*/*"]      [heze_mainnet_get_parent_payload_status]      [Mainnet] [Heze];
+    ["consensus-spec-tests/tests/mainnet/heze/fork_choice/on_attestation/*/*"]                 [heze_mainnet_on_attestation]                 [Mainnet] [Heze];
+    ["consensus-spec-tests/tests/mainnet/heze/fork_choice/on_block/*/*"]                       [heze_mainnet_on_block]                       [Mainnet] [Heze];
+    ["consensus-spec-tests/tests/mainnet/heze/fork_choice/on_execution_payload_envelope/*/*"]  [heze_mainnet_on_execution_payload_envelope]  [Mainnet] [Heze];
+    ["consensus-spec-tests/tests/mainnet/heze/fork_choice/on_payload_attestation_message/*/*"] [heze_mainnet_on_payload_attestation_message] [Mainnet] [Heze];
+    ["consensus-spec-tests/tests/mainnet/heze/fork_choice/payload_data_availability/*/*"]      [heze_mainnet_payload_data_availability]      [Mainnet] [Heze];
+    ["consensus-spec-tests/tests/mainnet/heze/fork_choice/payload_timeliness/*/*"]             [heze_mainnet_payload_timeliness]             [Mainnet] [Heze];
+    ["consensus-spec-tests/tests/minimal/heze/fork_choice/deposit_with_reorg/*/*"]             [heze_minimal_deposit_with_reorg]             [Minimal] [Heze];
+    ["consensus-spec-tests/tests/minimal/heze/fork_choice/ex_ante/*/*"]                        [heze_minimal_ex_ante]                        [Minimal] [Heze];
+    ["consensus-spec-tests/tests/minimal/heze/fork_choice/filter_node_tree_variants/*/*"]      [heze_minimal_filter_node_tree_variants]      [Minimal] [Heze];
+    ["consensus-spec-tests/tests/minimal/heze/fork_choice/get_head/*/*"]                       [heze_minimal_get_head]                       [Minimal] [Heze];
+    ["consensus-spec-tests/tests/minimal/heze/fork_choice/get_parent_payload_status/*/*"]      [heze_minimal_get_parent_payload_status]      [Minimal] [Heze];
+    ["consensus-spec-tests/tests/minimal/heze/fork_choice/on_attestation/*/*"]                 [heze_minimal_on_attestation]                 [Minimal] [Heze];
+    ["consensus-spec-tests/tests/minimal/heze/fork_choice/on_block/*/*"]                       [heze_minimal_on_block]                       [Minimal] [Heze];
+    ["consensus-spec-tests/tests/minimal/heze/fork_choice/on_execution_payload_envelope/*/*"]  [heze_minimal_on_execution_payload_envelope]  [Minimal] [Heze];
+    ["consensus-spec-tests/tests/minimal/heze/fork_choice/on_payload_attestation_message/*/*"] [heze_minimal_on_payload_attestation_message] [Minimal] [Heze];
+    ["consensus-spec-tests/tests/minimal/heze/fork_choice/should_apply_proposer_boost/*/*"]    [heze_minimal_should_apply_proposer_boost]    [Minimal] [Heze];
+    ["consensus-spec-tests/tests/minimal/heze/fork_choice/payload_data_availability/*/*"]      [heze_minimal_payload_data_availability]      [Minimal] [Heze];
+    ["consensus-spec-tests/tests/minimal/heze/fork_choice/payload_timeliness/*/*"]             [heze_minimal_payload_timeliness]             [Minimal] [Heze];
+    ["consensus-spec-tests/tests/minimal/heze/fork_choice/reorg/*/*"]                          [heze_minimal_reorg]                          [Minimal] [Heze];
+    ["consensus-spec-tests/tests/minimal/heze/fork_choice/withholding/*/*"]                    [heze_minimal_withholding]                    [Minimal] [Heze];
 )]
 #[test_resources(glob)]
 fn function_name(case: Case<'_>) {
@@ -412,7 +435,7 @@ async fn run_case<P: Preset>(config: &Arc<Config>, case: Case<'_>) {
                     | Phase::Bellatrix
                     | Phase::Capella
                     | Phase::Deneb => AttesterSlashing::Phase0(case.ssz(config, file_name)),
-                    Phase::Electra | Phase::Fulu | Phase::Gloas => {
+                    Phase::Electra | Phase::Fulu | Phase::Gloas | Phase::Heze => {
                         AttesterSlashing::Electra(case.ssz(config, file_name))
                     }
                 };

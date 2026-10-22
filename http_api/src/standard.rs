@@ -99,6 +99,14 @@ use types::{
             SignedExecutionPayloadEnvelopeContents, SignedProposerPreferences,
         },
     },
+    heze::{
+        consts::BUILDER_INDEX_SELF_BUILD,
+        containers::{
+            ExecutionPayloadEnvelope, PayloadAttestation, PayloadAttestationData,
+            PayloadAttestationMessage, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
+            SignedExecutionPayloadEnvelopeContents, SignedProposerPreferences,
+        },
+    },
     nonstandard::{
         BlockRewards, KzgProofs, Phase, RelativeEpoch, ValidationOutcome,
         ValidationOutcomeWithReason, WEI_IN_GWEI, WithBlobsAndMev, WithStatus,

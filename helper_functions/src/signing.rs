@@ -40,6 +40,17 @@ use types::{
             PayloadAttestationData, ProposerPreferences,
         },
     },
+    heze::{
+        consts::{
+            DOMAIN_BEACON_BUILDER, DOMAIN_BUILDER_DEPOSIT, DOMAIN_PROPOSER_PREFERENCES,
+            DOMAIN_PTC_ATTESTER,
+        },
+        containers::{
+            AggregateAndProof as HezeAggregateAndProof, BeaconBlock as HezeBeaconBlock,
+            BuilderDepositMessage, ExecutionPayloadBid, ExecutionPayloadEnvelope,
+            PayloadAttestationData, ProposerPreferences,
+        },
+    },
     phase0::{
         consts::{
             DOMAIN_AGGREGATE_AND_PROOF, DOMAIN_BEACON_ATTESTER, DOMAIN_BEACON_PROPOSER,
@@ -256,6 +267,15 @@ impl<P: Preset> SignForSingleFork<P> for GloasAggregateAndProof<P> {
     }
 }
 
+impl<P: Preset> SignForSingleFork<P> for HezeAggregateAndProof<P> {
+    const DOMAIN_TYPE: DomainType = DOMAIN_AGGREGATE_AND_PROOF;
+    const SIGNATURE_KIND: SignatureKind = SignatureKind::AggregateAndProof;
+
+    fn epoch(&self) -> Epoch {
+        misc::compute_epoch_at_slot::<P>(self.aggregate.data.slot)
+    }
+}
+
 impl<P: Preset> SignForSingleFork<P> for CombinedAggregateAndProof<P> {
     const DOMAIN_TYPE: DomainType = DOMAIN_AGGREGATE_AND_PROOF;
     const SIGNATURE_KIND: SignatureKind = SignatureKind::AggregateAndProof;
@@ -345,6 +365,15 @@ impl<P: Preset> SignForSingleFork<P> for FuluBeaconBlock<P> {
 }
 
 impl<P: Preset> SignForSingleFork<P> for GloasBeaconBlock<P> {
+    const DOMAIN_TYPE: DomainType = DOMAIN_BEACON_PROPOSER;
+    const SIGNATURE_KIND: SignatureKind = SignatureKind::Block;
+
+    fn epoch(&self) -> Epoch {
+        misc::compute_epoch_at_slot::<P>(self.slot)
+    }
+}
+
+impl<P: Preset> SignForSingleFork<P> for HezeBeaconBlock<P> {
     const DOMAIN_TYPE: DomainType = DOMAIN_BEACON_PROPOSER;
     const SIGNATURE_KIND: SignatureKind = SignatureKind::Block;
 
@@ -448,6 +477,7 @@ impl<P: Preset> SignForSingleFork<P> for VoluntaryExit {
             || current_fork_version == config.electra_fork_version
             || current_fork_version == config.fulu_fork_version
             || current_fork_version == config.gloas_fork_version
+            || current_fork_version == config.heze_fork_version
         {
             let fork_version = Some(config.capella_fork_version);
             let genesis_validators_root = Some(beacon_state.genesis_validators_root());

@@ -289,7 +289,7 @@ pub fn custom_state_transition<P: Preset>(
         (state, block) => {
             // This match arm will silently match any new phases.
             // Cause a compilation error if a new phase is added.
-            const_assert_eq!(Phase::CARDINALITY, 8);
+            const_assert_eq!(Phase::CARDINALITY, 9);
 
             bail!(PhaseError {
                 block_phase: block.phase(),

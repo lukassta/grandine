@@ -8,6 +8,7 @@ use types::{
     config::Config,
     electra::{consts::COMPOUNDING_WITHDRAWAL_PREFIX, containers::PendingDeposit},
     gloas::primitives::BuilderIndex,
+    heze::primitives::BuilderIndex,
     phase0::{
         consts::{FAR_FUTURE_EPOCH, GENESIS_SLOT},
         primitives::{Epoch, Gwei, ValidatorIndex},

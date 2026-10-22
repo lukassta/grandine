@@ -621,7 +621,7 @@ impl Eth1Api {
                 })
                 .await?
             }
-            Phase::Gloas => {
+            Phase::Gloas | Phase::Heze => {
                 let _timer = self.metrics.as_ref().map(|metrics| {
                     prometheus_metrics::start_timer_vec(
                         &metrics.eth1_api_request_times,
@@ -660,6 +660,7 @@ impl Eth1Api {
             Phase::Electra => payload_id.map(PayloadId::Electra),
             Phase::Fulu => payload_id.map(PayloadId::Fulu),
             Phase::Gloas => payload_id.map(PayloadId::Gloas),
+            Phase::Heze => payload_id.map(PayloadId::Heze),
             _ => {
                 // This match arm will silently match any new phases.
                 // Cause a compilation error if a new phase is added.
@@ -791,6 +792,25 @@ impl Eth1Api {
                     prometheus_metrics::start_timer_vec(
                         &metrics.eth1_api_request_times,
                         ENGINE_GET_PAYLOAD_V6,
+                    )
+                });
+
+                let value = self
+                    .exec(move |adapter| adapter.engine_get_payload_v6(payload_id))
+                    .await?;
+
+                let value: &dyn std::any::Any = &value;
+                let value: &EngineGetPayloadV6Response<P> =
+                    value.downcast_ref().ok_or(Error::InvalidPreset)?;
+                let value = value.clone();
+
+                value.into()
+            }
+            PayloadId::Heze(payload_id) => {
+                let _timer = self.metrics.as_ref().map(|metrics| {
+                    prometheus_metrics::start_timer_vec(
+                        &metrics.eth1_api_request_times,
+                        ENGINE_GET_PAYLOAD_V7,
                     )
                 });
 

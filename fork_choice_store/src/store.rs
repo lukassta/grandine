@@ -70,6 +70,18 @@ use types::{
         },
         primitives::{BuilderIndex, PayloadStatus as ExecutionPayloadStatus},
     },
+    heze::{
+        consts::{
+            BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION, PAYLOAD_STATUS_EMPTY,
+            PAYLOAD_STATUS_FULL,
+        },
+        containers::{
+            Builder, BuilderExitRequest, CombinedPayloadAttestation, ExecutionPayloadBid,
+            ExecutionRequests, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
+            SignedProposerPreferences,
+        },
+        primitives::{BuilderIndex, PayloadStatus as ExecutionPayloadStatus},
+    },
     nonstandard::{
         BlobSidecarWithId, DataColumnSidecarWithId, PayloadStatus, Phase, StorageMode, WithStatus,
     },

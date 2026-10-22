@@ -27,6 +27,13 @@ use types::{
         },
         primitives::BuilderIndex,
     },
+    heze::{
+        consts::BUILDER_WITHDRAWAL_PREFIX,
+        containers::{
+            Builder, BuilderDepositMessage, BuilderDepositRequest, IndexedPayloadAttestation,
+        },
+        primitives::BuilderIndex,
+    },
     nonstandard::PartialValidator,
     phase0::{
         consts::{ETH1_ADDRESS_WITHDRAWAL_PREFIX, FAR_FUTURE_EPOCH, TargetAggregatorsPerCommittee},

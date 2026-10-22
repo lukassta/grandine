@@ -51,6 +51,13 @@ use types::{
             ExecutionPayloadBid, ExecutionRequests, SignedExecutionPayloadBid,
         },
     },
+    heze::{
+        beacon_state::BeaconState as HezeBeaconState,
+        containers::{
+            BeaconBlock as HezeBeaconBlock, BeaconBlockBody as HezeBeaconBlockBody,
+            ExecutionPayloadBid, ExecutionRequests, SignedExecutionPayloadBid,
+        },
+    },
     nonstandard::{FinalizedCheckpoint, Phase, RelativeEpoch, WithOrigin},
     phase0::{
         beacon_state::BeaconState as Phase0BeaconState,
@@ -99,12 +106,13 @@ impl<'config, P: Preset> Incremental<'config, P> {
             Phase::Deneb => DenebBeaconBlockBody::<P>::default().hash_tree_root(),
             Phase::Electra => ElectraBeaconBlockBody::<P>::default().hash_tree_root(),
             Phase::Fulu => FuluBeaconBlockBody::<P>::default().hash_tree_root(),
-            Phase::Gloas => GloasBeaconBlockBody::<P> {
+            Phase::Gloas => GloasBeaconBlockBody::<P>::default().hash_tree_root(),
+            Phase::Heze => HezeBeaconBlockBody::<P> {
                 signed_execution_payload_bid: SignedExecutionPayloadBid {
-                    message: gloas_execution_payload_bid.clone(),
+                    message: heze_execution_payload_bid.clone(),
                     ..SignedExecutionPayloadBid::default()
                 },
-                ..GloasBeaconBlockBody::default()
+                ..HezeBeaconBlockBody::default()
             }
             .hash_tree_root(),
         };
@@ -174,6 +182,15 @@ impl<'config, P: Preset> Incremental<'config, P> {
                 deposit_requests_start_index: UNSET_DEPOSIT_REQUESTS_START_INDEX,
                 latest_execution_payload_bid: gloas_execution_payload_bid,
                 ..GloasBeaconState::default()
+            }
+            .into(),
+            Phase::Heze => HezeBeaconState {
+                slot,
+                fork,
+                latest_block_header,
+                deposit_requests_start_index: UNSET_DEPOSIT_REQUESTS_START_INDEX,
+                latest_execution_payload_bid: heze_execution_payload_bid,
+                ..HezeBeaconState::default()
             }
             .into(),
         };

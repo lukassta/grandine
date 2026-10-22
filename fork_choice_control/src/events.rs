@@ -34,6 +34,13 @@ use types::{
         },
         primitives::{BuilderIndex, PayloadStatus},
     },
+    heze::{
+        containers::{
+            ExecutionPayloadBid, PayloadAttestationMessage, SignedExecutionPayloadBid,
+            SignedProposerPreferences,
+        },
+        primitives::{BuilderIndex, PayloadStatus},
+    },
     nonstandard::Phase,
     phase0::{
         containers::{Checkpoint, ProposerSlashing, SignedVoluntaryExit},
@@ -1179,6 +1186,7 @@ pub enum CombinedPayloadAttributesEventData {
     Electra(PayloadAttributesEventDataV3),
     Fulu(PayloadAttributesEventDataV3),
     Gloas(PayloadAttributesEventDataV4),
+    Heze(PayloadAttributesEventDataV4),
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -1349,6 +1357,9 @@ impl<P: Preset> From<PayloadAttributes<P>> for CombinedPayloadAttributesEventDat
             }
             PayloadAttributes::Gloas(payload_attributes_v4) => {
                 Self::Gloas(payload_attributes_v4.into())
+            }
+            PayloadAttributes::Heze(payload_attributes_v4) => {
+                Self::Heze(payload_attributes_v4.into())
             }
         }
     }
