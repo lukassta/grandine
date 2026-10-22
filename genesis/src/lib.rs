@@ -673,29 +673,6 @@ mod extra_tests {
         Ok(())
     }
 
-    #[test]
-    fn heze_eip8015_genesis_finishes_without_legacy_fields() -> Result<()> {
-        use types::traits::SignedBeaconBlock as _;
-        let config = Config::minimal().start_and_stay_in(Phase::Heze);
-        let cache = PubkeyCache::default();
-        let data = half_deposit_data::<types::preset::Minimal>()?;
-        let mut builder = Incremental::<types::preset::Minimal>::new(&config);
-        builder.add_deposit_data(&cache, data, 0)?;
-        builder.add_deposit_data(&cache, data, 1)?;
-        let (state, _) = builder.finish(&cache, ExecutionBlockHash::repeat_byte(9), None)?;
-        assert_eq!(state.phase(), Phase::Heze);
-        assert!(state.pre_heze().is_none());
-        assert_eq!(state.validators().len_usize(), 1);
-        assert_eq!(state.fork().current_version, config.heze_fork_version);
-        assert_eq!(state.fork().previous_version, config.heze_fork_version);
-        let block = beacon_block(&state);
-        assert_eq!(
-            state.latest_block_header().body_root,
-            block.message().body().hash_tree_root()
-        );
-        Ok(())
-    }
-
     fn half_deposit_data<P: Preset>() -> Result<DepositData> {
         let secret_key = b"????????????????????????????????"
             .copy()

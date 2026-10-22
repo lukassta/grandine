@@ -26,7 +26,7 @@ if [[ "$filter" == heze_ ]]; then
     --features bls/blst,kzg_utils/blst --test heze_eip8015
   cargo test --locked --release \
     -p genesis -p bls -p kzg_utils \
-    --features bls/blst,kzg_utils/blst --lib heze_eip8015
+    --features bls/blst,kzg_utils/blst --test heze_genesis
   cargo test --locked --release \
     -p helper_functions -p bls -p kzg_utils \
     --features bls/blst,kzg_utils/blst --test heze_focil
