@@ -1,7 +1,6 @@
-use crate::electra::process_attester_slashing;
 use crate::gloas::{
-    apply_attestation, process_payload_attestation, process_proposer_slashing,
-    validate_attestation_with_verifier,
+    apply_attestation, process_attester_slashing, process_payload_attestation,
+    process_proposer_slashing, validate_attestation_with_verifier,
 };
 use crate::{capella, electra};
 use anyhow::{Result, ensure};
@@ -406,6 +405,10 @@ pub fn process_execution_payload_bid<P: Preset>(
     Ok(())
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "Keep the specified consensus operation ordering explicit"
+)]
 fn process_operations<P: Preset, V: Verifier, B>(
     config: &Config,
     pubkey_cache: &PubkeyCache,

@@ -326,3 +326,13 @@ endif
 .PHONY: test-heze
 test-heze:
 	bash scripts/test_heze.sh
+
+.PHONY: test-eip8321
+test-eip8321:
+	bash scripts/test_eip8321.sh all
+
+.PHONY: prepare-eip8321-dependencies
+prepare-eip8321-dependencies:
+	bash scripts/prepare_eip8321_dependencies.sh
+
+check build test minimal release: prepare-eip8321-dependencies

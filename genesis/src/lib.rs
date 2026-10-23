@@ -109,6 +109,15 @@ impl<'config, P: Preset> Incremental<'config, P> {
         };
 
         let body_root = match phase {
+            Phase::Eip8321 => types::eip8321::containers::BeaconBlockBody::<P> {
+                signed_execution_payload_bid:
+                    types::eip8321::containers::SignedExecutionPayloadBid {
+                        message: heze_execution_payload_bid.clone(),
+                        ..Default::default()
+                    },
+                ..Default::default()
+            }
+            .hash_tree_root(),
             Phase::Phase0 => Phase0BeaconBlockBody::<P>::default().hash_tree_root(),
             Phase::Altair => AltairBeaconBlockBody::<P>::default().hash_tree_root(),
             Phase::Bellatrix => BellatrixBeaconBlockBody::<P>::default().hash_tree_root(),
@@ -141,6 +150,14 @@ impl<'config, P: Preset> Incremental<'config, P> {
         };
 
         let beacon_state = match phase {
+            Phase::Eip8321 => types::eip8321::beacon_state::BeaconState {
+                slot,
+                fork,
+                latest_block_header,
+                latest_execution_payload_bid: heze_execution_payload_bid,
+                ..Default::default()
+            }
+            .into(),
             Phase::Phase0 => Phase0BeaconState {
                 slot,
                 fork,
@@ -374,7 +391,7 @@ impl<'config, P: Preset> Incremental<'config, P> {
         // > If empty, will initialize a chain that has not yet gone through the Merge transition
         let mut beacon_state =
             beacon_state.with_execution_payload_header(execution_payload_header)?;
-        if target_phase == Phase::Heze {
+        if target_phase >= Phase::Heze {
             let BeaconState::Gloas(pre) = beacon_state else {
                 anyhow::bail!("Heze genesis must be assembled from Gloas");
             };
@@ -389,7 +406,23 @@ impl<'config, P: Preset> Incremental<'config, P> {
                 ..Default::default()
             }
             .hash_tree_root();
-            beacon_state = post.into();
+            if target_phase == Phase::Eip8321 {
+                let mut upgraded = helper_functions::fork::upgrade_to_eip8321(config, post)?;
+                upgraded.fork.previous_version = upgraded.fork.current_version;
+                upgraded.latest_block_header.body_root =
+                    types::eip8321::containers::BeaconBlockBody::<P> {
+                        signed_execution_payload_bid:
+                            types::eip8321::containers::SignedExecutionPayloadBid {
+                                message: upgraded.latest_execution_payload_bid.clone(),
+                                ..Default::default()
+                            },
+                        ..Default::default()
+                    }
+                    .hash_tree_root();
+                beacon_state = upgraded.into();
+            } else {
+                beacon_state = post.into();
+            }
         }
         Ok((beacon_state, deposit_tree))
     }
@@ -444,6 +477,21 @@ enum GenesisTriggerError {
 /// <https://github.com/ethereum/consensus-specs/blob/2fa396f67df35df236b6aa6fe714a59ee1032dc8/specs/phase0/beacon-chain.md#genesis-block>
 #[must_use]
 pub fn beacon_block<P: Preset>(genesis_state: &BeaconState<P>) -> SignedBeaconBlock<P> {
+    if let BeaconState::Eip8321(state) = genesis_state {
+        return BeaconBlock::from(Hc::new(types::eip8321::containers::BeaconBlock {
+            body: types::eip8321::containers::BeaconBlockBody {
+                signed_execution_payload_bid:
+                    types::eip8321::containers::SignedExecutionPayloadBid {
+                        message: state.latest_execution_payload_bid.clone(),
+                        ..Default::default()
+                    },
+                ..Default::default()
+            },
+            ..Default::default()
+        }))
+        .with_state_root(genesis_state.hash_tree_root())
+        .with_zero_signature();
+    }
     let execution_payload_bid = match genesis_state {
         BeaconState::Gloas(state) => Some(ExecutionPayloadHeader::Gloas(
             state.latest_execution_payload_bid.clone(),
@@ -471,6 +519,9 @@ fn beacon_block_internal<P: Preset>(
 
     // Note that `BeaconBlock.body.eth1_data` is not set to `genesis_state.eth1_data()`.
     match phase {
+        Phase::Eip8321 => {
+            BeaconBlock::from(Hc::new(types::eip8321::containers::BeaconBlock::default()))
+        }
         Phase::Phase0 => BeaconBlock::from(Hc::new(Phase0BeaconBlock::default())),
         Phase::Altair => BeaconBlock::from(Hc::new(AltairBeaconBlock::default())),
         Phase::Bellatrix => BeaconBlock::from(Hc::new(BellatrixBeaconBlock::default())),
@@ -602,7 +653,7 @@ mod spec_tests {
         let expected_genesis_state = case.ssz::<_, BeaconState<Minimal>>(&config, "state");
 
         let execution_payload_header = match phase {
-            Phase::Phase0 | Phase::Altair | Phase::Gloas | Phase::Heze => {
+            Phase::Phase0 | Phase::Altair | Phase::Gloas | Phase::Heze | Phase::Eip8321 => {
                 assert!(!case.exists("execution_payload_header"));
                 None
             }

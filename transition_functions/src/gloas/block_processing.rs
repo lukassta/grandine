@@ -12,11 +12,10 @@ use helper_functions::{
         initialize_shuffled_indices,
     },
     electra::{
-        get_attesting_indices, is_fully_withdrawable_validator,
-        is_partially_withdrawable_validator, slash_validator,
+        get_attesting_indices, is_fully_withdrawable_validator, is_partially_withdrawable_validator,
     },
     error::SignatureKind,
-    gloas::get_indexed_attestation,
+    gloas::{get_indexed_attestation, slash_validator},
     misc::{
         builder_payment_index_for_current_epoch, builder_payment_index_for_previous_epoch,
         compute_epoch_at_slot, convert_builder_index_to_validator_index, get_max_effective_balance,
@@ -1318,6 +1317,36 @@ pub fn process_proposer_slashing<P: Preset>(
         SlashingKind::Proposer,
         slot_report,
     )
+}
+
+pub fn process_attester_slashing<P: Preset>(
+    config: &Config,
+    pubkey_cache: &PubkeyCache,
+    state: &mut impl PostGloasBeaconState<P>,
+    attester_slashing: &impl types::traits::AttesterSlashing<P>,
+    verifier: impl Verifier,
+    mut slot_report: impl SlotReport,
+) -> Result<()> {
+    let slashable_indices = unphased::validate_attester_slashing_with_verifier(
+        config,
+        pubkey_cache,
+        state,
+        attester_slashing,
+        verifier,
+    )?;
+
+    for validator_index in slashable_indices {
+        slash_validator(
+            config,
+            state,
+            validator_index,
+            None,
+            SlashingKind::Attester,
+            &mut slot_report,
+        )?;
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

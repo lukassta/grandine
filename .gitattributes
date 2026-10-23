@@ -1,0 +1,3 @@
+
+# Preserve whitespace in upstream dependency diff context.
+patches/*.patch whitespace=-blank-at-eol

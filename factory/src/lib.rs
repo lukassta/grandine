@@ -528,7 +528,7 @@ fn signed_execution_payload_bid<P: Preset>(
             signature: SignatureBytes::empty(),
         }
         .into(),
-        Phase::Heze => HezeSignedExecutionPayloadBid {
+        Phase::Heze | Phase::Eip8321 => HezeSignedExecutionPayloadBid {
             message: HezeExecutionPayloadBid {
                 parent_block_hash,
                 parent_block_root,
@@ -580,6 +580,9 @@ pub fn execution_payload<P: Preset>(
         .try_into()?;
 
     let execution_payload = match config.phase_at_slot::<P>(slot) {
+        Phase::Eip8321 => {
+            bail!("Eip8321 payload construction requires the FOCIL execution-engine interface")
+        }
         Phase::Phase0 | Phase::Altair => bail!("slot should be post-Bellatrix"),
         Phase::Bellatrix => BellatrixExecutionPayload {
             parent_hash,
@@ -712,6 +715,9 @@ fn block_with_parent_payload<P: Preset>(
     });
 
     let without_state_root = match advanced_state.phase() {
+        Phase::Eip8321 => {
+            bail!("use Eip8321 block types and the FOCIL bid when constructing a Eip8321 block")
+        }
         Phase::Phase0 => BeaconBlock::from(Hc::new(Phase0BeaconBlock {
             slot,
             proposer_index,

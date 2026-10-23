@@ -23,3 +23,10 @@ ssz-spec-tests/
 exception.log
 
 /test-vectors/reports/
+
+/test-vectors/eip8321/
+
+# Local reference archives may also be directory symlinks.
+/consensus-spec-tests
+/cryptography-spec-tests
+/ssz-spec-tests

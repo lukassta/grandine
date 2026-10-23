@@ -1,4 +1,5 @@
 use core::ops::Index as _;
+use ssz::SszListMut as _;
 
 use anyhow::{Result, ensure};
 use arithmetic::{U64Ext as _, UsizeExt as _};
@@ -926,6 +927,9 @@ pub fn add_validator_to_registry<P: Preset>(
     state.previous_epoch_participation_mut().push(0)?;
     state.current_epoch_participation_mut().push(0)?;
     state.inactivity_scores_mut().push(0)?;
+    if let Some(commitments) = state.randao_commitments_mut() {
+        commitments.push(H256::zero())?;
+    }
 
     Ok(())
 }

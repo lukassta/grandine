@@ -62,6 +62,11 @@ use ::{enum_iterator::Sequence, strum::VariantNames};
 ///
 /// See [presets in `consensus-specs`](https://github.com/ethereum/consensus-specs/tree/aac851f860fa384916f62027b2dbe3318a354c5b/presets).
 pub trait Preset: Copy + Eq + Ord + Hash + Default + Debug + Send + Sync + 'static {
+    const COMMITMENT_REGISTRATION_DELAY: u64 =
+        crate::eip8321::consts::COMMITMENT_REGISTRATION_DELAY;
+    const MAX_RANDAO_COMMITMENT_REGISTRATIONS: usize =
+        crate::eip8321::consts::MAX_RANDAO_COMMITMENT_REGISTRATIONS;
+
     // Phase 0
     type EpochsPerEth1VotingPeriod: Unsigned
         + NonZero
@@ -795,6 +800,15 @@ impl PresetName {
     }
 
     #[must_use]
+    pub const fn eip8321_preset(self) -> Eip8321Preset {
+        match self {
+            Self::Mainnet => Eip8321Preset::new::<Mainnet>(),
+            Self::Minimal => Eip8321Preset::new::<Minimal>(),
+            Self::Medalla => Eip8321Preset::new::<Medalla>(),
+        }
+    }
+
+    #[must_use]
     pub fn heze_preset(self) -> HezePreset {
         match self {
             Self::Mainnet => HezePreset::new::<Mainnet>(),
@@ -1183,6 +1197,25 @@ impl FuluPreset {
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
+pub struct Eip8321Preset {
+    #[serde(with = "serde_utils::string_or_native")]
+    commitment_registration_delay: u64,
+    #[serde(with = "serde_utils::string_or_native")]
+    max_randao_commitment_registrations: usize,
+}
+
+impl Eip8321Preset {
+    #[must_use]
+    pub const fn new<P: Preset>() -> Self {
+        Self {
+            commitment_registration_delay: P::COMMITMENT_REGISTRATION_DELAY,
+            max_randao_commitment_registrations: P::MAX_RANDAO_COMMITMENT_REGISTRATIONS,
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
 pub struct GloasPreset {
     #[serde(with = "serde_utils::string_or_native")]
     ptc_size: NonZeroU64,
@@ -1304,6 +1337,7 @@ mod tests {
                 &preset_name.fulu_preset(),
                 &preset_name.gloas_preset(),
                 &preset_name.heze_preset(),
+                &preset_name.eip8321_preset(),
             ];
         }
     }

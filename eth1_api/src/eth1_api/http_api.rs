@@ -489,7 +489,7 @@ impl Eth1Api {
                 .await?
                 .result
                 .into_common_parts(),
-            Phase::Heze => self
+            Phase::Heze | Phase::Eip8321 => self
                 .execute::<RawForkChoiceUpdatedResponse<PayloadStatusV2>>(
                     ENGINE_FORKCHOICE_UPDATED_V5,
                     params,
@@ -502,7 +502,7 @@ impl Eth1Api {
             _ => {
                 // This match arm will silently match any new phases.
                 // Cause a compilation error if a new phase is added.
-                const_assert_eq!(Phase::CARDINALITY, 9);
+                const_assert_eq!(Phase::CARDINALITY, 10);
 
                 bail!(Error::PhasePreBellatrix)
             }
@@ -515,11 +515,11 @@ impl Eth1Api {
             Phase::Electra => payload_id.map(PayloadId::Electra),
             Phase::Fulu => payload_id.map(PayloadId::Fulu),
             Phase::Gloas => payload_id.map(PayloadId::Gloas),
-            Phase::Heze => payload_id.map(PayloadId::Gloas),
+            Phase::Heze | Phase::Eip8321 => payload_id.map(PayloadId::Gloas),
             _ => {
                 // This match arm will silently match any new phases.
                 // Cause a compilation error if a new phase is added.
-                const_assert_eq!(Phase::CARDINALITY, 9);
+                const_assert_eq!(Phase::CARDINALITY, 10);
 
                 bail!(Error::PhasePreBellatrix)
             }

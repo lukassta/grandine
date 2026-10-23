@@ -82,6 +82,12 @@ use crate::{
         },
         primitives::KzgCommitment,
     },
+    eip8321::{
+        beacon_state::BeaconState as Eip8321BeaconState,
+        containers::{
+            BeaconBlock as Eip8321BeaconBlock, BeaconBlockBody as Eip8321BeaconBlockBody,
+        },
+    },
     electra::{
         beacon_state::BeaconState as ElectraBeaconState,
         containers::{
@@ -187,6 +193,7 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     ) -> (&mut dyn SszValidatorListMut, &dyn SszList<Gwei>);
     fn balances_mut_with_slashings(&mut self) -> (&mut dyn SszListMut<Gwei>, &Slashings<P>);
 
+    fn randao_commitments_mut(&mut self) -> Option<&mut ssz::PersistentProgressiveList<H256>>;
     fn pre_heze(&self) -> Option<&dyn PreHezeBeaconState<P>>;
     fn pre_heze_mut(&mut self) -> Option<&mut dyn PreHezeBeaconState<P>>;
     fn post_electra(&self) -> Option<&dyn PostElectraBeaconState<P>>;
@@ -217,7 +224,8 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     is_post_fulu_body
     is_post_gloas_body
     pre_heze_body
-    pre_heze_mut_body;
+    pre_heze_mut_body
+    randao_commitments_mut_body;
 
     [P: Preset, S: BeaconState<P> + Clone]
     [Arc<S>]
@@ -234,7 +242,8 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     [self.as_ref().is_post_fulu()]
     [self.as_ref().is_post_gloas()]
     [self.as_ref().pre_heze()]
-    [self.make_mut().pre_heze_mut()];
+    [self.make_mut().pre_heze_mut()]
+    [self.make_mut().randao_commitments_mut()];
 
     [P: Preset, S: BeaconState<P>]
     [Hc<S>]
@@ -251,7 +260,8 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     [self.as_ref().is_post_fulu()]
     [self.as_ref().is_post_gloas()]
     [self.as_ref().pre_heze()]
-    [self.as_mut().pre_heze_mut()];
+    [self.as_mut().pre_heze_mut()]
+    [self.as_mut().randao_commitments_mut()];
 
     [P: Preset]
     [Phase0BeaconState<P>]
@@ -268,7 +278,8 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     [false]
     [false]
     [Some(self)]
-    [Some(self)];
+    [Some(self)]
+    [None];
 
     [P: Preset]
     [AltairBeaconState<P>]
@@ -285,7 +296,8 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     [false]
     [false]
     [Some(self)]
-    [Some(self)];
+    [Some(self)]
+    [None];
 
     [P: Preset]
     [BellatrixBeaconState<P>]
@@ -302,7 +314,8 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     [false]
     [false]
     [Some(self)]
-    [Some(self)];
+    [Some(self)]
+    [None];
 
     [P: Preset]
     [CapellaBeaconState<P>]
@@ -319,7 +332,8 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     [false]
     [false]
     [Some(self)]
-    [Some(self)];
+    [Some(self)]
+    [None];
 
     [P: Preset]
     [DenebBeaconState<P>]
@@ -336,7 +350,8 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     [false]
     [false]
     [Some(self)]
-    [Some(self)];
+    [Some(self)]
+    [None];
 
     [P: Preset]
     [ElectraBeaconState<P>]
@@ -353,7 +368,8 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     [false]
     [false]
     [Some(self)]
-    [Some(self)];
+    [Some(self)]
+    [None];
 
     [P: Preset]
     [FuluBeaconState<P>]
@@ -370,7 +386,8 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     [true]
     [false]
     [Some(self)]
-    [Some(self)];
+    [Some(self)]
+    [None];
 
     [P: Preset]
     [GloasBeaconState<P>]
@@ -387,7 +404,8 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     [true]
     [true]
     [Some(self)]
-    [Some(self)];
+    [Some(self)]
+    [None];
 
     [P: Preset]
     [HezeBeaconState<P>]
@@ -404,7 +422,26 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     [true]
     [true]
     [None]
+    [None]
     [None];
+
+    [P: Preset]
+    [Eip8321BeaconState<P>]
+    [self.field]
+    [&self.field]
+    [&mut self.field]
+    [(&mut self.validators, &self.balances)]
+    [(&mut self.balances, &self.slashings)]
+    [Some(self)]
+    [Some(self)]
+    [Some(self)]
+    [true]
+    [true]
+    [true]
+    [true]
+    [None]
+    [None]
+    [Some(&mut self.randao_commitments)];
 
     [P: Preset]
     [CombinedBeaconState<P>]
@@ -419,6 +456,7 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
             Self::Fulu(state) => state.field,
             Self::Gloas(state) => state.field,
             Self::Heze(state) => state.field,
+            Self::Eip8321(state) => state.field,
         }
     ]
     [
@@ -432,6 +470,7 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
             Self::Fulu(state) => &state.field,
             Self::Gloas(state) => &state.field,
             Self::Heze(state) => &state.field,
+            Self::Eip8321(state) => &state.field,
         }
     ]
     [
@@ -445,6 +484,7 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
             Self::Fulu(state) => &mut state.field,
             Self::Gloas(state) => &mut state.field,
             Self::Heze(state) => &mut state.field,
+            Self::Eip8321(state) => &mut state.field,
         }
     ]
     [
@@ -458,6 +498,7 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
             Self::Fulu(state) => state.validators_mut_with_balances(),
             Self::Gloas(state) => state.validators_mut_with_balances(),
             Self::Heze(state) => state.validators_mut_with_balances(),
+            Self::Eip8321(state) => state.validators_mut_with_balances(),
         }
     ]
     [
@@ -471,6 +512,7 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
             Self::Fulu(state) => state.balances_mut_with_slashings(),
             Self::Gloas(state) => state.balances_mut_with_slashings(),
             Self::Heze(state) => state.balances_mut_with_slashings(),
+            Self::Eip8321(state) => state.balances_mut_with_slashings(),
         }
     ]
     [self.post_electra()]
@@ -499,6 +541,7 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
             Self::Fulu(state) => Some(state),
             Self::Gloas(state) => Some(state),
             Self::Heze(_) => None,
+            Self::Eip8321(_) => None,
         }
     ]
     [
@@ -512,8 +555,10 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
             Self::Fulu(state) => Some(state),
             Self::Gloas(state) => Some(state),
             Self::Heze(_) => None,
+            Self::Eip8321(_) => None,
         }
-    ];
+    ]
+    [match self { Self::Eip8321(state) => Some(&mut state.randao_commitments), _ => None }];
 )]
 impl<parameters> BeaconState<P> for implementor {
     #[duplicate_item(
@@ -578,6 +623,10 @@ impl<parameters> BeaconState<P> for implementor {
 
     fn balances_mut_with_slashings(&mut self) -> (&mut dyn SszListMut<Gwei>, &Slashings<P>) {
         balances_mut_with_slashings_body
+    }
+
+    fn randao_commitments_mut(&mut self) -> Option<&mut ssz::PersistentProgressiveList<H256>> {
+        randao_commitments_mut_body
     }
 
     fn pre_heze(&self) -> Option<&dyn PreHezeBeaconState<P>> {
@@ -678,6 +727,11 @@ pub trait PostAltairBeaconState<P: Preset>: BeaconState<P> {
 
     [P: Preset]
     [HezeBeaconState<P>]
+    [&self.field]
+    [&mut self.field];
+
+    [P: Preset]
+    [Eip8321BeaconState<P>]
     [&self.field]
     [&mut self.field];
 )]
@@ -783,6 +837,16 @@ impl<P: Preset> PostBellatrixBeaconState<P> for GloasBeaconState<P> {
 }
 
 impl<P: Preset> PostBellatrixBeaconState<P> for HezeBeaconState<P> {
+    fn latest_execution_payload_header(&self) -> &dyn ExecutionPayload<P> {
+        &self.latest_execution_payload_bid
+    }
+
+    fn latest_execution_payload_header_mut(&mut self) -> &mut dyn ExecutionPayload<P> {
+        &mut self.latest_execution_payload_bid
+    }
+}
+
+impl<P: Preset> PostBellatrixBeaconState<P> for Eip8321BeaconState<P> {
     fn latest_execution_payload_header(&self) -> &dyn ExecutionPayload<P> {
         &self.latest_execution_payload_bid
     }
@@ -926,6 +990,24 @@ impl<P: Preset> PostCapellaBeaconState<P> for HezeBeaconState<P> {
     }
 }
 
+impl<P: Preset> PostCapellaBeaconState<P> for Eip8321BeaconState<P> {
+    fn next_withdrawal_index(&self) -> WithdrawalIndex {
+        self.next_withdrawal_index
+    }
+
+    fn next_withdrawal_index_mut(&mut self) -> &mut WithdrawalIndex {
+        &mut self.next_withdrawal_index
+    }
+
+    fn next_withdrawal_validator_index(&self) -> ValidatorIndex {
+        self.next_withdrawal_validator_index
+    }
+
+    fn next_withdrawal_validator_index_mut(&mut self) -> &mut ValidatorIndex {
+        &mut self.next_withdrawal_validator_index
+    }
+}
+
 pub trait PostElectraBeaconState<P: Preset>: PostCapellaBeaconState<P> {
     fn deposit_balance_to_consume(&self) -> Gwei;
     fn exit_balance_to_consume(&self) -> Gwei;
@@ -979,6 +1061,12 @@ pub trait PostElectraBeaconState<P: Preset>: PostCapellaBeaconState<P> {
 
     [P: Preset]
     [HezeBeaconState<P>]
+    [self.field]
+    [&self.field]
+    [&mut self.field];
+
+    [P: Preset]
+    [Eip8321BeaconState<P>]
     [self.field]
     [&self.field]
     [&mut self.field];
@@ -1067,6 +1155,16 @@ impl<P: Preset> PostFuluBeaconState<P> for HezeBeaconState<P> {
     }
 }
 
+impl<P: Preset> PostFuluBeaconState<P> for Eip8321BeaconState<P> {
+    fn proposer_lookahead(&self) -> &ProposerLookahead<P> {
+        &self.proposer_lookahead
+    }
+
+    fn proposer_lookahead_mut(&mut self) -> &mut ProposerLookahead<P> {
+        &mut self.proposer_lookahead
+    }
+}
+
 pub trait PostGloasBeaconState<P: Preset>: PostFuluBeaconState<P> {
     fn latest_execution_payload_bid(&self) -> &dyn PayloadBid<P>;
     fn execution_payload_availability(&self) -> BitVector<SlotsPerHistoricalRoot<P>>;
@@ -1109,6 +1207,12 @@ pub trait PostGloasBeaconState<P: Preset>: PostFuluBeaconState<P> {
 
     [P: Preset]
     [HezeBeaconState<P>]
+    [self.field]
+    [&self.field]
+    [&mut self.field];
+
+    [P: Preset]
+    [Eip8321BeaconState<P>]
     [self.field]
     [&self.field]
     [&mut self.field];
@@ -1186,6 +1290,7 @@ impl<P: Preset> SignedBeaconBlock<P> for CombinedSignedBeaconBlock<P> {
             Self::Fulu(block) => &block.message,
             Self::Gloas(block) => &block.message,
             Self::Heze(block) => &block.message,
+            Self::Eip8321(block) => &block.message,
         }
     }
 
@@ -1200,6 +1305,7 @@ impl<P: Preset> SignedBeaconBlock<P> for CombinedSignedBeaconBlock<P> {
             Self::Fulu(block) => block.signature,
             Self::Gloas(block) => block.signature,
             Self::Heze(block) => block.signature,
+            Self::Eip8321(block) => block.signature,
         }
     }
 }
@@ -1261,7 +1367,8 @@ pub trait BeaconBlock<P: Preset>: SszHash<PackingFactor = U1> {
     [Hc<ElectraBeaconBlock<P>>]      [self.field]    [&self.field];
     [Hc<FuluBeaconBlock<P>>]         [self.field]    [&self.field];
     [Hc<GloasBeaconBlock<P>>]        [self.field]    [&self.field];
-    [Hc<HezeBeaconBlock<P>>]         [self.field]    [&self.field];
+    [Hc<HezeBeaconBlock<P>>]        [self.field]    [&self.field];
+    [Hc<Eip8321BeaconBlock<P>>]        [self.field]    [&self.field];
 
     [BellatrixBlindedBeaconBlock<P>] [self.field]    [&self.field];
     [CapellaBlindedBeaconBlock<P>]   [self.field]    [&self.field];
@@ -1281,6 +1388,7 @@ pub trait BeaconBlock<P: Preset>: SszHash<PackingFactor = U1> {
             Self::Fulu(block) => block.field,
             Self::Gloas(block) => block.field,
             Self::Heze(block) => block.field,
+            Self::Eip8321(block) => block.field,
         }
     ]
     [
@@ -1294,6 +1402,7 @@ pub trait BeaconBlock<P: Preset>: SszHash<PackingFactor = U1> {
             Self::Fulu(block) => &block.field,
             Self::Gloas(block) => &block.field,
             Self::Heze(block) => &block.field,
+            Self::Eip8321(block) => &block.field,
         }
     ];
 
@@ -1382,6 +1491,7 @@ pub trait BeaconBlockBody<P: Preset>: SszHash<PackingFactor = U1> {
     [FuluBeaconBlockBody<P>]             [None]           [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [None]           [Some(self)]     [None]           [None] [Some(self)];
     [GloasBeaconBlockBody<P>]            [None]           [Some(self)]     [None]           [Some(self)]     [Some(self)]     [None]           [Some(self)]     [None]           [Some(self)]     [Some(self)] [Some(self)];
     [HezeBeaconBlockBody<P>]            [None]           [Some(self)]     [None]           [Some(self)]     [Some(self)]     [None]           [Some(self)]     [None]           [Some(self)]     [Some(self)] [None];
+    [Eip8321BeaconBlockBody<P>]            [None]           [Some(self)]     [None]           [Some(self)]     [Some(self)]     [None]           [Some(self)]     [None]           [Some(self)]     [Some(self)] [None];
 
     // `BellatrixBlindedBeaconBlockBody` does not implement `BlockBodyWithExecutionPayload`
     // because it does not have an `execution_payload` field.
@@ -1636,6 +1746,12 @@ impl<P: Preset> BlockBodyWithSyncAggregate<P> for HezeBeaconBlockBody<P> {
     }
 }
 
+impl<P: Preset> BlockBodyWithSyncAggregate<P> for Eip8321BeaconBlockBody<P> {
+    fn sync_aggregate(&self) -> SyncAggregate<P> {
+        self.sync_aggregate
+    }
+}
+
 impl<P: Preset> BlockBodyWithSyncAggregate<P> for BellatrixBlindedBeaconBlockBody<P> {
     fn sync_aggregate(&self) -> SyncAggregate<P> {
         self.sync_aggregate
@@ -1790,6 +1906,12 @@ impl<P: Preset> BlockBodyWithBlsToExecutionChanges<P> for HezeBeaconBlockBody<P>
     }
 }
 
+impl<P: Preset> BlockBodyWithBlsToExecutionChanges<P> for Eip8321BeaconBlockBody<P> {
+    fn bls_to_execution_changes(&self) -> &dyn SszList<SignedBlsToExecutionChange> {
+        &self.bls_to_execution_changes
+    }
+}
+
 // Previously `PostDenebBeaconBlockBody`
 pub trait BlockBodyWithBlobKzgCommitments<P: Preset>: BeaconBlockBody<P> {
     // TODO(feature/deneb): method for state is_post_deneb
@@ -1844,6 +1966,15 @@ impl<P: Preset> BlockBodyWithBlobKzgCommitments<P> for HezeBeaconBlockBody<P> {
     }
 }
 
+impl<P: Preset> BlockBodyWithBlobKzgCommitments<P> for Eip8321BeaconBlockBody<P> {
+    fn blob_kzg_commitments(&self) -> &dyn SszList<KzgCommitment> {
+        &self
+            .signed_execution_payload_bid
+            .message
+            .blob_kzg_commitments
+    }
+}
+
 // Previously in `PostElectraBeaconBlockBody`
 pub trait BlockBodyWithElectraAttestations<P: Preset>: PreHezeBeaconBlockBody<P> {
     fn attestations(&self) -> &ContiguousList<ElectraAttestation<P>, P::MaxAttestationsElectra>;
@@ -1873,6 +2004,12 @@ impl<P: Preset> BlockBodyWithGloasAttestations<P> for GloasBeaconBlockBody<P> {
 }
 
 impl<P: Preset> BlockBodyWithGloasAttestations<P> for HezeBeaconBlockBody<P> {
+    fn attestations(&self) -> &ProgressiveList<GloasAttestation<P>> {
+        &self.attestations
+    }
+}
+
+impl<P: Preset> BlockBodyWithGloasAttestations<P> for Eip8321BeaconBlockBody<P> {
     fn attestations(&self) -> &ProgressiveList<GloasAttestation<P>> {
         &self.attestations
     }
@@ -1910,6 +2047,12 @@ impl<P: Preset> BlockBodyWithGloasAttesterSlashings<P> for GloasBeaconBlockBody<
 }
 
 impl<P: Preset> BlockBodyWithGloasAttesterSlashings<P> for HezeBeaconBlockBody<P> {
+    fn attester_slashings(&self) -> &ProgressiveList<GloasAttesterSlashing<P>> {
+        &self.attester_slashings
+    }
+}
+
+impl<P: Preset> BlockBodyWithGloasAttesterSlashings<P> for Eip8321BeaconBlockBody<P> {
     fn attester_slashings(&self) -> &ProgressiveList<GloasAttesterSlashing<P>> {
         &self.attester_slashings
     }
@@ -1955,6 +2098,12 @@ impl<P: Preset> BlockBodyWithPayloadBid<P> for GloasBeaconBlockBody<P> {
 }
 
 impl<P: Preset> BlockBodyWithPayloadBid<P> for HezeBeaconBlockBody<P> {
+    fn payload_bid(&self) -> &dyn PayloadBid<P> {
+        &self.signed_execution_payload_bid.message
+    }
+}
+
+impl<P: Preset> BlockBodyWithPayloadBid<P> for Eip8321BeaconBlockBody<P> {
     fn payload_bid(&self) -> &dyn PayloadBid<P> {
         &self.signed_execution_payload_bid.message
     }
@@ -2032,6 +2181,12 @@ impl<P: Preset> PayloadBid<P> for implementor {
 
     fn execution_requests_root(&self) -> H256 {
         self.execution_requests_root
+    }
+}
+
+impl<P: Preset> BlockBodyWithPayloadAttestations<P> for Eip8321BeaconBlockBody<P> {
+    fn payload_attestations(&self) -> &ProgressiveList<PayloadAttestation<P>> {
+        &self.payload_attestations
     }
 }
 

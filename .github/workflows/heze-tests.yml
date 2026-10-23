@@ -4,6 +4,8 @@ on:
   push:
     paths:
       - '.github/workflows/heze-tests.yml'
+      - 'scripts/prepare_eip8321_dependencies.sh'
+      - 'patches/**'
       - 'scripts/test_heze.sh'
       - 'fork_choice_store/**'
       - 'test-vectors/**'
@@ -43,6 +45,8 @@ jobs:
           persist-credentials: false
       - name: Check out Cargo submodules
         run: git submodule update --init --recursive dedicated_executor eth2_libp2p
+      - name: Prepare EIP-8321 fork matching in the pinned network dependency
+        run: bash scripts/prepare_eip8321_dependencies.sh
       - name: Install native build dependencies
         run: |
           sudo apt-get update

@@ -30,8 +30,6 @@
 //                      `altair::epoch_intermediates::epoch_deltas` does the same.
 
 // fs_err is used by the separate reference-vector integration target.
-#[cfg(test)]
-use fs_err as _;
 
 pub mod combined;
 
@@ -247,8 +245,8 @@ pub mod gloas {
     pub use epoch_processing::process_pending_deposits;
 
     pub(crate) use block_processing::{
-        apply_attestation, process_payload_attestation, process_proposer_slashing,
-        validate_attestation_with_verifier,
+        apply_attestation, process_attester_slashing, process_payload_attestation,
+        process_proposer_slashing, validate_attestation_with_verifier,
     };
     pub(crate) use block_processing::{
         process_block, process_block_for_gossip, process_withdrawals,
@@ -275,6 +273,26 @@ pub mod heze {
     pub(crate) use slot_processing::process_slots;
     pub(crate) use state_transition::{state_transition, verify_signatures};
 
+    mod block_processing;
+    mod epoch_intermediates;
+    mod epoch_processing;
+    mod slot_processing;
+    mod state_transition;
+}
+
+pub mod eip8321 {
+    pub use crate::gloas::{apply_parent_execution_payload, get_expected_withdrawals};
+    pub(crate) use block_processing::{process_block, process_block_for_gossip};
+    pub use block_processing::{
+        process_execution_payload_bid, process_operations, process_randao,
+        process_randao_commitment_registration, verify_hash_chain_reveal,
+    };
+    pub(crate) use epoch_processing::process_epoch;
+    pub use epoch_processing::{
+        apply_pending_deposit, process_pending_deposits, process_pending_randao_commitments,
+    };
+    pub(crate) use slot_processing::process_slots;
+    pub(crate) use state_transition::{state_transition, verify_signatures};
     mod block_processing;
     mod epoch_intermediates;
     mod epoch_processing;
