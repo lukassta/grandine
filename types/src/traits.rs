@@ -146,9 +146,6 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     fn block_roots(&self) -> &RecentRoots<P>;
     fn state_roots(&self) -> &RecentRoots<P>;
     fn historical_roots(&self) -> &HistoricalRoots<P>;
-    fn eth1_data(&self) -> Eth1Data;
-    fn eth1_data_votes(&self) -> &Eth1DataVotes<P>;
-    fn eth1_deposit_index(&self) -> DepositIndex;
     // TODO(gloas): dyn SszList kills performance, especially for iterations, as
     // every item iteration becomes dynamic dispatch. To bring back performance,
     // the dyn SszList should be replaced with generic type, but this will make
@@ -172,9 +169,6 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     fn block_roots_mut(&mut self) -> &mut RecentRoots<P>;
     fn state_roots_mut(&mut self) -> &mut RecentRoots<P>;
     fn historical_roots_mut(&mut self) -> &mut HistoricalRoots<P>;
-    fn eth1_data_mut(&mut self) -> &mut Eth1Data;
-    fn eth1_data_votes_mut(&mut self) -> &mut Eth1DataVotes<P>;
-    fn eth1_deposit_index_mut(&mut self) -> &mut DepositIndex;
     fn validators_mut(&mut self) -> &mut dyn SszValidatorListMut;
     fn balances_mut(&mut self) -> &mut dyn SszListMut<Gwei>;
     fn randao_mixes_mut(&mut self) -> &mut RandaoMixes<P>;
@@ -193,6 +187,8 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     ) -> (&mut dyn SszValidatorListMut, &dyn SszList<Gwei>);
     fn balances_mut_with_slashings(&mut self) -> (&mut dyn SszListMut<Gwei>, &Slashings<P>);
 
+    fn pre_heze(&self) -> Option<&dyn PreHezeBeaconState<P>>;
+    fn pre_heze_mut(&mut self) -> Option<&mut dyn PreHezeBeaconState<P>>;
     fn post_electra(&self) -> Option<&dyn PostElectraBeaconState<P>>;
     fn post_fulu(&self) -> Option<&dyn PostFuluBeaconState<P>>;
     fn post_gloas(&self) -> Option<&dyn PostGloasBeaconState<P>>;
@@ -219,7 +215,9 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     is_post_deneb_body
     is_post_electra_body
     is_post_fulu_body
-    is_post_gloas_body;
+    is_post_gloas_body
+    pre_heze_body
+    pre_heze_mut_body;
 
     [P: Preset, S: BeaconState<P> + Clone]
     [Arc<S>]
@@ -234,7 +232,9 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     [self.as_ref().is_post_deneb()]
     [self.as_ref().is_post_electra()]
     [self.as_ref().is_post_fulu()]
-    [self.as_ref().is_post_gloas()];
+    [self.as_ref().is_post_gloas()]
+    [self.as_ref().pre_heze()]
+    [self.make_mut().pre_heze_mut()];
 
     [P: Preset, S: BeaconState<P>]
     [Hc<S>]
@@ -249,7 +249,9 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     [self.as_ref().is_post_deneb()]
     [self.as_ref().is_post_electra()]
     [self.as_ref().is_post_fulu()]
-    [self.as_ref().is_post_gloas()];
+    [self.as_ref().is_post_gloas()]
+    [self.as_ref().pre_heze()]
+    [self.as_mut().pre_heze_mut()];
 
     [P: Preset]
     [Phase0BeaconState<P>]
@@ -264,7 +266,9 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     [false]
     [false]
     [false]
-    [false];
+    [false]
+    [Some(self)]
+    [Some(self)];
 
     [P: Preset]
     [AltairBeaconState<P>]
@@ -279,7 +283,9 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     [false]
     [false]
     [false]
-    [false];
+    [false]
+    [Some(self)]
+    [Some(self)];
 
     [P: Preset]
     [BellatrixBeaconState<P>]
@@ -294,7 +300,9 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     [false]
     [false]
     [false]
-    [false];
+    [false]
+    [Some(self)]
+    [Some(self)];
 
     [P: Preset]
     [CapellaBeaconState<P>]
@@ -309,7 +317,9 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     [false]
     [false]
     [false]
-    [false];
+    [false]
+    [Some(self)]
+    [Some(self)];
 
     [P: Preset]
     [DenebBeaconState<P>]
@@ -324,7 +334,9 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     [true]
     [false]
     [false]
-    [false];
+    [false]
+    [Some(self)]
+    [Some(self)];
 
     [P: Preset]
     [ElectraBeaconState<P>]
@@ -339,7 +351,9 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     [true]
     [true]
     [false]
-    [false];
+    [false]
+    [Some(self)]
+    [Some(self)];
 
     [P: Preset]
     [FuluBeaconState<P>]
@@ -354,7 +368,9 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     [true]
     [true]
     [true]
-    [false];
+    [false]
+    [Some(self)]
+    [Some(self)];
 
     [P: Preset]
     [GloasBeaconState<P>]
@@ -369,7 +385,9 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     [true]
     [true]
     [true]
-    [true];
+    [true]
+    [Some(self)]
+    [Some(self)];
 
     [P: Preset]
     [HezeBeaconState<P>]
@@ -384,7 +402,9 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     [true]
     [true]
     [true]
-    [true];
+    [true]
+    [None]
+    [None];
 
     [P: Preset]
     [CombinedBeaconState<P>]
@@ -467,6 +487,32 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     ]
     [
         self.phase() >= Phase::Gloas
+    ]
+    [
+        match self {
+            Self::Phase0(state) => Some(state),
+            Self::Altair(state) => Some(state),
+            Self::Bellatrix(state) => Some(state),
+            Self::Capella(state) => Some(state),
+            Self::Deneb(state) => Some(state),
+            Self::Electra(state) => Some(state),
+            Self::Fulu(state) => Some(state),
+            Self::Gloas(state) => Some(state),
+            Self::Heze(_) => None,
+        }
+    ]
+    [
+        match self {
+            Self::Phase0(state) => Some(state),
+            Self::Altair(state) => Some(state),
+            Self::Bellatrix(state) => Some(state),
+            Self::Capella(state) => Some(state),
+            Self::Deneb(state) => Some(state),
+            Self::Electra(state) => Some(state),
+            Self::Fulu(state) => Some(state),
+            Self::Gloas(state) => Some(state),
+            Self::Heze(_) => None,
+        }
     ];
 )]
 impl<parameters> BeaconState<P> for implementor {
@@ -477,8 +523,6 @@ impl<parameters> BeaconState<P> for implementor {
         [slot]                          [Slot];
         [fork]                          [Fork];
         [latest_block_header]           [BeaconBlockHeader];
-        [eth1_data]                     [Eth1Data];
-        [eth1_deposit_index]            [DepositIndex];
         [justification_bits]            [BitVector<JustificationBitsLength>];
         [previous_justified_checkpoint] [Checkpoint];
         [current_justified_checkpoint]  [Checkpoint];
@@ -493,7 +537,6 @@ impl<parameters> BeaconState<P> for implementor {
         [block_roots]      [RecentRoots<P>];
         [state_roots]      [RecentRoots<P>];
         [historical_roots] [HistoricalRoots<P>];
-        [eth1_data_votes]  [Eth1DataVotes<P>];
         [validators]       [dyn SszValidatorList];
         [balances]         [dyn SszList<Gwei>];
         [randao_mixes]     [RandaoMixes<P>];
@@ -513,9 +556,6 @@ impl<parameters> BeaconState<P> for implementor {
         [block_roots]                   [block_roots_mut]                   [RecentRoots<P>];
         [state_roots]                   [state_roots_mut]                   [RecentRoots<P>];
         [historical_roots]              [historical_roots_mut]              [HistoricalRoots<P>];
-        [eth1_data]                     [eth1_data_mut]                     [Eth1Data];
-        [eth1_data_votes]               [eth1_data_votes_mut]               [Eth1DataVotes<P>];
-        [eth1_deposit_index]            [eth1_deposit_index_mut]            [DepositIndex];
         [validators]                    [validators_mut]                    [dyn SszValidatorListMut];
         [balances]                      [balances_mut]                      [dyn SszListMut<Gwei>];
         [randao_mixes]                  [randao_mixes_mut]                  [RandaoMixes<P>];
@@ -538,6 +578,13 @@ impl<parameters> BeaconState<P> for implementor {
 
     fn balances_mut_with_slashings(&mut self) -> (&mut dyn SszListMut<Gwei>, &Slashings<P>) {
         balances_mut_with_slashings_body
+    }
+
+    fn pre_heze(&self) -> Option<&dyn PreHezeBeaconState<P>> {
+        pre_heze_body
+    }
+    fn pre_heze_mut(&mut self) -> Option<&mut dyn PreHezeBeaconState<P>> {
+        pre_heze_mut_body
     }
 
     fn post_electra(&self) -> Option<&dyn PostElectraBeaconState<P>> {
@@ -880,7 +927,6 @@ impl<P: Preset> PostCapellaBeaconState<P> for HezeBeaconState<P> {
 }
 
 pub trait PostElectraBeaconState<P: Preset>: PostCapellaBeaconState<P> {
-    fn deposit_requests_start_index(&self) -> u64;
     fn deposit_balance_to_consume(&self) -> Gwei;
     fn exit_balance_to_consume(&self) -> Gwei;
     fn earliest_exit_epoch(&self) -> Epoch;
@@ -890,7 +936,6 @@ pub trait PostElectraBeaconState<P: Preset>: PostCapellaBeaconState<P> {
     fn pending_partial_withdrawals(&self) -> &dyn SszList<PendingPartialWithdrawal>;
     fn pending_consolidations(&self) -> &dyn SszList<PendingConsolidation>;
 
-    fn deposit_requests_start_index_mut(&mut self) -> &mut u64;
     fn deposit_balance_to_consume_mut(&mut self) -> &mut Gwei;
     fn exit_balance_to_consume_mut(&mut self) -> &mut Gwei;
     fn earliest_exit_epoch_mut(&mut self) -> &mut Epoch;
@@ -941,7 +986,6 @@ pub trait PostElectraBeaconState<P: Preset>: PostCapellaBeaconState<P> {
 impl<parameters> PostElectraBeaconState<P> for implementor {
     #[duplicate_item(
         field                              return_type;
-        [deposit_requests_start_index]     [u64];
         [deposit_balance_to_consume]       [Gwei];
         [exit_balance_to_consume]          [Gwei];
         [earliest_exit_epoch]              [Epoch];
@@ -964,7 +1008,6 @@ impl<parameters> PostElectraBeaconState<P> for implementor {
 
     #[duplicate_item(
         field                              method                                 return_type;
-        [deposit_requests_start_index]     [deposit_requests_start_index_mut]     [u64];
         [deposit_balance_to_consume]       [deposit_balance_to_consume_mut]       [Gwei];
         [exit_balance_to_consume]          [exit_balance_to_consume_mut]          [Gwei];
         [earliest_exit_epoch]              [earliest_exit_epoch_mut]              [Epoch];
@@ -1298,10 +1341,8 @@ impl<P: Preset> BeaconBlock<P> for implementor {
 
 pub trait BeaconBlockBody<P: Preset>: SszHash<PackingFactor = U1> {
     fn randao_reveal(&self) -> SignatureBytes;
-    fn eth1_data(&self) -> Eth1Data;
     fn graffiti(&self) -> H256;
     fn proposer_slashings(&self) -> &dyn SszList<ProposerSlashing>;
-    fn deposits(&self) -> &dyn SszList<Deposit>;
     fn voluntary_exits(&self) -> &dyn SszList<SignedVoluntaryExit>;
 
     fn attester_slashings_len(&self) -> usize;
@@ -1309,6 +1350,7 @@ pub trait BeaconBlockBody<P: Preset>: SszHash<PackingFactor = U1> {
     fn attestations_len(&self) -> usize;
     fn attestations_root(&self) -> H256;
 
+    fn pre_heze(&self) -> Option<&dyn PreHezeBeaconBlockBody<P>>;
     fn pre_electra(&self) -> Option<&dyn PreElectraBeaconBlockBody<P>>;
 
     fn with_sync_aggregate(&self) -> Option<&dyn BlockBodyWithSyncAggregate<P>>;
@@ -1329,33 +1371,29 @@ pub trait BeaconBlockBody<P: Preset>: SszHash<PackingFactor = U1> {
 }
 
 #[duplicate_item(
-    implementor                          pre_electra_body body_with_sync_aggregate body_with_execution_payload body_with_bls_to_execution_changes body_with_blob_kzg_commitments body_with_electra_attestations body_with_gloas_attestations body_with_execution_requests body_with_payload_bid body_with_payload_attestations;
+    implementor                          pre_electra_body body_with_sync_aggregate body_with_execution_payload body_with_bls_to_execution_changes body_with_blob_kzg_commitments body_with_electra_attestations body_with_gloas_attestations body_with_execution_requests body_with_payload_bid body_with_payload_attestations pre_heze_body;
 
-    [Phase0BeaconBlockBody<P>]           [Some(self)]     [None]           [None]           [None]           [None]           [None]           [None]           [None]           [None]           [None];
-    [AltairBeaconBlockBody<P>]           [Some(self)]     [Some(self)]     [None]           [None]           [None]           [None]           [None]           [None]           [None]           [None];
-    [BellatrixBeaconBlockBody<P>]        [Some(self)]     [Some(self)]     [Some(self)]     [None]           [None]           [None]           [None]           [None]           [None]           [None];
-    [CapellaBeaconBlockBody<P>]          [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [None]           [None]           [None]           [None]           [None]           [None];
-    [DenebBeaconBlockBody<P>]            [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [None]           [None]           [None]           [None]           [None];
-    [ElectraBeaconBlockBody<P>]          [None]           [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [None]           [Some(self)]     [None]           [None];
-    [FuluBeaconBlockBody<P>]             [None]           [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [None]           [Some(self)]     [None]           [None];
-    [GloasBeaconBlockBody<P>]            [None]           [Some(self)]     [None]           [Some(self)]     [Some(self)]     [None]           [Some(self)]     [None]           [Some(self)]     [Some(self)];
-    [HezeBeaconBlockBody<P>]             [None]           [Some(self)]     [None]           [Some(self)]     [Some(self)]     [None]           [Some(self)]     [None]           [Some(self)]     [Some(self)];
+    [Phase0BeaconBlockBody<P>]           [Some(self)]     [None]           [None]           [None]           [None]           [None]           [None]           [None]           [None]           [None] [Some(self)];
+    [AltairBeaconBlockBody<P>]           [Some(self)]     [Some(self)]     [None]           [None]           [None]           [None]           [None]           [None]           [None]           [None] [Some(self)];
+    [BellatrixBeaconBlockBody<P>]        [Some(self)]     [Some(self)]     [Some(self)]     [None]           [None]           [None]           [None]           [None]           [None]           [None] [Some(self)];
+    [CapellaBeaconBlockBody<P>]          [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [None]           [None]           [None]           [None]           [None]           [None] [Some(self)];
+    [DenebBeaconBlockBody<P>]            [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [None]           [None]           [None]           [None]           [None] [Some(self)];
+    [ElectraBeaconBlockBody<P>]          [None]           [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [None]           [Some(self)]     [None]           [None] [Some(self)];
+    [FuluBeaconBlockBody<P>]             [None]           [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [None]           [Some(self)]     [None]           [None] [Some(self)];
+    [GloasBeaconBlockBody<P>]            [None]           [Some(self)]     [None]           [Some(self)]     [Some(self)]     [None]           [Some(self)]     [None]           [Some(self)]     [Some(self)] [Some(self)];
+    [HezeBeaconBlockBody<P>]            [None]           [Some(self)]     [None]           [Some(self)]     [Some(self)]     [None]           [Some(self)]     [None]           [Some(self)]     [Some(self)] [None];
 
     // `BellatrixBlindedBeaconBlockBody` does not implement `BlockBodyWithExecutionPayload`
     // because it does not have an `execution_payload` field.
-    [BellatrixBlindedBeaconBlockBody<P>] [Some(self)]     [Some(self)]     [None]           [None]           [None]           [None]           [None]           [None]           [None]           [None];
-    [CapellaBlindedBeaconBlockBody<P>]   [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [None]           [None]           [None]           [None]           [None]           [None];
-    [DenebBlindedBeaconBlockBody<P>]     [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [None]           [None]           [None]           [None]           [None];
-    [ElectraBlindedBeaconBlockBody<P>]   [None]           [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [None]           [Some(self)]     [None]           [None];
-    [FuluBlindedBeaconBlockBody<P>]      [None]           [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [None]           [Some(self)]     [None]           [None];
+    [BellatrixBlindedBeaconBlockBody<P>] [Some(self)]     [Some(self)]     [None]           [None]           [None]           [None]           [None]           [None]           [None]           [None] [Some(self)];
+    [CapellaBlindedBeaconBlockBody<P>]   [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [None]           [None]           [None]           [None]           [None]           [None] [Some(self)];
+    [DenebBlindedBeaconBlockBody<P>]     [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [None]           [None]           [None]           [None]           [None] [Some(self)];
+    [ElectraBlindedBeaconBlockBody<P>]   [None]           [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [None]           [Some(self)]     [None]           [None] [Some(self)];
+    [FuluBlindedBeaconBlockBody<P>]      [None]           [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [Some(self)]     [None]           [Some(self)]     [None]           [None] [Some(self)];
 )]
 impl<P: Preset> BeaconBlockBody<P> for implementor {
     fn randao_reveal(&self) -> SignatureBytes {
         self.randao_reveal
-    }
-
-    fn eth1_data(&self) -> Eth1Data {
-        self.eth1_data
     }
 
     fn graffiti(&self) -> H256 {
@@ -1364,10 +1402,6 @@ impl<P: Preset> BeaconBlockBody<P> for implementor {
 
     fn proposer_slashings(&self) -> &dyn SszList<ProposerSlashing> {
         &self.proposer_slashings
-    }
-
-    fn deposits(&self) -> &dyn SszList<Deposit> {
-        &self.deposits
     }
 
     fn voluntary_exits(&self) -> &dyn SszList<SignedVoluntaryExit> {
@@ -1388,6 +1422,10 @@ impl<P: Preset> BeaconBlockBody<P> for implementor {
 
     fn attestations_root(&self) -> H256 {
         self.attestations.hash_tree_root()
+    }
+
+    fn pre_heze(&self) -> Option<&dyn PreHezeBeaconBlockBody<P>> {
+        pre_heze_body
     }
 
     fn pre_electra(&self) -> Option<&dyn PreElectraBeaconBlockBody<P>> {
@@ -1442,7 +1480,7 @@ impl<P: Preset> BeaconBlockBody<P> for implementor {
     }
 }
 
-pub trait PreElectraBeaconBlockBody<P: Preset>: BeaconBlockBody<P> {
+pub trait PreElectraBeaconBlockBody<P: Preset>: PreHezeBeaconBlockBody<P> {
     fn attestations(&self) -> &ContiguousList<Phase0Attestation<P>, P::MaxAttestations>;
     fn attester_slashings(
         &self,
@@ -1629,7 +1667,7 @@ impl<P: Preset> BlockBodyWithSyncAggregate<P> for FuluBlindedBeaconBlockBody<P> 
 }
 
 // Previously `PostBellatrixBeaconBlockBody`
-pub trait BlockBodyWithExecutionPayload<P: Preset>: BeaconBlockBody<P> {
+pub trait BlockBodyWithExecutionPayload<P: Preset>: PreHezeBeaconBlockBody<P> {
     fn execution_payload(&self) -> &dyn ExecutionPayload<P>;
 }
 
@@ -1807,7 +1845,7 @@ impl<P: Preset> BlockBodyWithBlobKzgCommitments<P> for HezeBeaconBlockBody<P> {
 }
 
 // Previously in `PostElectraBeaconBlockBody`
-pub trait BlockBodyWithElectraAttestations<P: Preset>: BeaconBlockBody<P> {
+pub trait BlockBodyWithElectraAttestations<P: Preset>: PreHezeBeaconBlockBody<P> {
     fn attestations(&self) -> &ContiguousList<ElectraAttestation<P>, P::MaxAttestationsElectra>;
 }
 
@@ -2433,4 +2471,137 @@ pub trait SszValidatorListMut: SszValidatorList {
     fn clear_pubkeys(&mut self, count: usize);
 
     fn push(&mut self, validator: Validator) -> Result<(), PushError>;
+}
+// EIP-8015 removes these capabilities from Heze. Shared post-Heze algorithms
+// cannot accidentally read or mutate retired Eth1 bridge fields.
+pub trait PreHezeBeaconState<P: Preset>: BeaconState<P> {
+    fn eth1_data(&self) -> Eth1Data;
+    fn eth1_data_votes(&self) -> &Eth1DataVotes<P>;
+    fn eth1_deposit_index(&self) -> DepositIndex;
+    fn eth1_data_mut(&mut self) -> &mut Eth1Data;
+    fn eth1_data_votes_mut(&mut self) -> &mut Eth1DataVotes<P>;
+    fn eth1_deposit_index_mut(&mut self) -> &mut DepositIndex;
+}
+#[duplicate_item(state;
+[Phase0BeaconState];
+[AltairBeaconState];
+[BellatrixBeaconState];
+[CapellaBeaconState];
+[DenebBeaconState];
+[ElectraBeaconState];
+[FuluBeaconState];
+[GloasBeaconState];
+)]
+impl<P: Preset> PreHezeBeaconState<P> for state<P> {
+    fn eth1_data(&self) -> Eth1Data {
+        self.eth1_data
+    }
+    fn eth1_data_votes(&self) -> &Eth1DataVotes<P> {
+        &self.eth1_data_votes
+    }
+    fn eth1_deposit_index(&self) -> DepositIndex {
+        self.eth1_deposit_index
+    }
+    fn eth1_data_mut(&mut self) -> &mut Eth1Data {
+        &mut self.eth1_data
+    }
+    fn eth1_data_votes_mut(&mut self) -> &mut Eth1DataVotes<P> {
+        &mut self.eth1_data_votes
+    }
+    fn eth1_deposit_index_mut(&mut self) -> &mut DepositIndex {
+        &mut self.eth1_deposit_index
+    }
+}
+
+impl<P: Preset, S: PreHezeBeaconState<P>> PreHezeBeaconState<P> for Hc<S> {
+    fn eth1_data(&self) -> Eth1Data {
+        self.as_ref().eth1_data()
+    }
+    fn eth1_data_votes(&self) -> &Eth1DataVotes<P> {
+        self.as_ref().eth1_data_votes()
+    }
+    fn eth1_deposit_index(&self) -> DepositIndex {
+        self.as_ref().eth1_deposit_index()
+    }
+    fn eth1_data_mut(&mut self) -> &mut Eth1Data {
+        self.as_mut().eth1_data_mut()
+    }
+    fn eth1_data_votes_mut(&mut self) -> &mut Eth1DataVotes<P> {
+        self.as_mut().eth1_data_votes_mut()
+    }
+    fn eth1_deposit_index_mut(&mut self) -> &mut DepositIndex {
+        self.as_mut().eth1_deposit_index_mut()
+    }
+}
+
+impl<P: Preset, S: PreHezeBeaconState<P> + Clone> PreHezeBeaconState<P> for Arc<S> {
+    fn eth1_data(&self) -> Eth1Data {
+        self.as_ref().eth1_data()
+    }
+    fn eth1_data_votes(&self) -> &Eth1DataVotes<P> {
+        self.as_ref().eth1_data_votes()
+    }
+    fn eth1_deposit_index(&self) -> DepositIndex {
+        self.as_ref().eth1_deposit_index()
+    }
+    fn eth1_data_mut(&mut self) -> &mut Eth1Data {
+        self.make_mut().eth1_data_mut()
+    }
+    fn eth1_data_votes_mut(&mut self) -> &mut Eth1DataVotes<P> {
+        self.make_mut().eth1_data_votes_mut()
+    }
+    fn eth1_deposit_index_mut(&mut self) -> &mut DepositIndex {
+        self.make_mut().eth1_deposit_index_mut()
+    }
+}
+
+pub trait PreHezePostElectraBeaconState<P: Preset>:
+    PostElectraBeaconState<P> + PreHezeBeaconState<P>
+{
+    fn deposit_requests_start_index(&self) -> DepositIndex;
+    fn deposit_requests_start_index_mut(&mut self) -> &mut DepositIndex;
+}
+#[duplicate_item(state; [ElectraBeaconState]; [FuluBeaconState]; [GloasBeaconState];)]
+impl<P: Preset> PreHezePostElectraBeaconState<P> for state<P> {
+    fn deposit_requests_start_index(&self) -> DepositIndex {
+        self.deposit_requests_start_index
+    }
+    fn deposit_requests_start_index_mut(&mut self) -> &mut DepositIndex {
+        &mut self.deposit_requests_start_index
+    }
+}
+impl<P: Preset, S: PreHezePostElectraBeaconState<P>> PreHezePostElectraBeaconState<P> for Hc<S> {
+    fn deposit_requests_start_index(&self) -> DepositIndex {
+        self.as_ref().deposit_requests_start_index()
+    }
+    fn deposit_requests_start_index_mut(&mut self) -> &mut DepositIndex {
+        self.as_mut().deposit_requests_start_index_mut()
+    }
+}
+pub trait PreHezeBeaconBlockBody<P: Preset>: BeaconBlockBody<P> {
+    fn eth1_data(&self) -> Eth1Data;
+    fn deposits(&self) -> &dyn SszList<Deposit>;
+}
+#[duplicate_item(body;
+[Phase0BeaconBlockBody];
+[AltairBeaconBlockBody];
+[BellatrixBeaconBlockBody];
+[CapellaBeaconBlockBody];
+[DenebBeaconBlockBody];
+[ElectraBeaconBlockBody];
+[FuluBeaconBlockBody];
+[GloasBeaconBlockBody];
+[BellatrixBlindedBeaconBlockBody];
+[CapellaBlindedBeaconBlockBody];
+[DenebBlindedBeaconBlockBody];
+[ElectraBlindedBeaconBlockBody];
+[FuluBlindedBeaconBlockBody];
+ )]
+impl<P: Preset> PreHezeBeaconBlockBody<P> for body<P> {
+    fn eth1_data(&self) -> Eth1Data {
+        self.eth1_data
+    }
+    fn deposits(&self) -> &dyn SszList<Deposit> {
+        &self.deposits
+    }
 }

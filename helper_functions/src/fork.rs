@@ -953,7 +953,14 @@ pub fn upgrade_to_gloas<P: Preset>(
 
 #[must_use]
 #[expect(clippy::too_many_lines)]
-pub fn upgrade_to_heze<P: Preset>(config: &Config, pre: GloasBeaconState<P>) -> HezeBeaconState<P> {
+pub fn upgrade_to_heze<P: Preset>(
+    config: &Config,
+    pre: GloasBeaconState<P>,
+) -> Result<HezeBeaconState<P>> {
+    anyhow::ensure!(
+        pre.eth1_deposit_index == pre.deposit_requests_start_index,
+        "legacy deposits must be fully processed before Heze"
+    );
     let epoch = accessors::get_current_epoch(&pre);
 
     let GloasBeaconState {
@@ -965,9 +972,9 @@ pub fn upgrade_to_heze<P: Preset>(config: &Config, pre: GloasBeaconState<P>) -> 
         block_roots,
         state_roots,
         historical_roots,
-        eth1_data,
-        eth1_data_votes,
-        eth1_deposit_index,
+        eth1_data: _,
+        eth1_data_votes: _,
+        eth1_deposit_index: _,
         validators,
         balances,
         randao_mixes,
@@ -985,7 +992,7 @@ pub fn upgrade_to_heze<P: Preset>(config: &Config, pre: GloasBeaconState<P>) -> 
         next_withdrawal_index,
         next_withdrawal_validator_index,
         historical_summaries,
-        deposit_requests_start_index,
+        deposit_requests_start_index: _,
         deposit_balance_to_consume,
         exit_balance_to_consume,
         earliest_exit_epoch,
@@ -1045,7 +1052,7 @@ pub fn upgrade_to_heze<P: Preset>(config: &Config, pre: GloasBeaconState<P>) -> 
         inclusion_list_bits: BitVector::default(),
     };
 
-    HezeBeaconState {
+    Ok(HezeBeaconState {
         genesis_time,
         genesis_validators_root,
         slot,
@@ -1054,9 +1061,6 @@ pub fn upgrade_to_heze<P: Preset>(config: &Config, pre: GloasBeaconState<P>) -> 
         block_roots,
         state_roots,
         historical_roots,
-        eth1_data,
-        eth1_data_votes,
-        eth1_deposit_index,
         validators,
         balances,
         randao_mixes,
@@ -1074,7 +1078,6 @@ pub fn upgrade_to_heze<P: Preset>(config: &Config, pre: GloasBeaconState<P>) -> 
         next_withdrawal_index,
         next_withdrawal_validator_index,
         historical_summaries,
-        deposit_requests_start_index,
         deposit_balance_to_consume,
         exit_balance_to_consume,
         earliest_exit_epoch,
@@ -1093,7 +1096,7 @@ pub fn upgrade_to_heze<P: Preset>(config: &Config, pre: GloasBeaconState<P>) -> 
         payload_expected_withdrawals,
         ptc_window,
         cache,
-    }
+    })
 }
 
 fn initialize_proposer_lookahead<P: Preset>(
@@ -1413,7 +1416,8 @@ mod spec_tests {
         let pre = case.ssz_default("pre");
         let expected_post = case.ssz_default("post");
 
-        let actual_post = upgrade_to_heze::<P>(&P::default_config(), pre);
+        let actual_post =
+            upgrade_to_heze::<P>(&P::default_config(), pre).expect("valid Heze upgrade");
 
         assert_eq!(actual_post, expected_post);
     }

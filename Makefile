@@ -322,3 +322,7 @@ else
 		--tag $(DOCKER_REPO):$(DOCKER_LABEL)-amd64$(DOCKER_SUFFIX)-nethermind-$(NETHERMIND_VERSION) \
 		./target/x86_64-unknown-linux-gnu/compact
 endif
+
+.PHONY: test-heze
+test-heze:
+	bash scripts/test_heze.sh

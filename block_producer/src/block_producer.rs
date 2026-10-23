@@ -961,7 +961,11 @@ impl<P: Preset, W: Wait> BlockBuildContext<P, W> {
     ) -> Result<BeaconBlock<P>> {
         info_with_peers!("block producer starting build beacon block without state root task");
 
-        let eth1_data = self.beacon_state.eth1_data();
+        let eth1_data = self
+            .beacon_state
+            .pre_heze()
+            .map(|state| state.eth1_data())
+            .unwrap_or_default();
         let deposits = ContiguousList::default();
 
         // TODO(Grandine Team): Preparing slashings and voluntary exits independently may result
@@ -1275,12 +1279,10 @@ impl<P: Preset, W: Wait> BlockBuildContext<P, W> {
                             state_root,
                             body: HezeBeaconBlockBody {
                                 randao_reveal,
-                                eth1_data,
                                 graffiti,
                                 proposer_slashings: proposer_slashings.into(),
                                 attester_slashings: self.prepare_attester_slashings_gloas().await,
                                 attestations: attestations.map(Into::into).into(),
-                                deposits: deposits.into(),
                                 voluntary_exits: voluntary_exits.into(),
                                 sync_aggregate,
                                 bls_to_execution_changes: bls_to_execution_changes.into(),

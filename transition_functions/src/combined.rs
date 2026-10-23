@@ -537,7 +537,7 @@ pub fn process_slots<P: Preset>(
                 }
 
                 if Toption::Some(last_slot_in_phase) == heze_fork_slot {
-                    *state = fork::upgrade_to_heze(config, gloas_state.as_ref().clone()).into();
+                    *state = fork::upgrade_to_heze(config, gloas_state.as_ref().clone())?.into();
 
                     made_progress = true;
                 }
@@ -745,7 +745,7 @@ fn post_process_slots_for_epoch_report<P: Preset>(
                 let heze_fork_slot = config.fork_slot::<P>(Phase::Heze);
 
                 if Toption::Some(post_slot) == heze_fork_slot {
-                    *state = fork::upgrade_to_heze(config, gloas_state.as_ref().clone()).into();
+                    *state = fork::upgrade_to_heze(config, gloas_state.as_ref().clone())?.into();
                 }
             }
             BeaconState::Heze(_) => {}
@@ -1045,9 +1045,7 @@ pub fn process_deposit_data(
         BeaconState::Gloas(state) => {
             electra::process_deposit_data(config, pubkey_cache, state, deposit_data)
         }
-        BeaconState::Heze(state) => {
-            electra::process_deposit_data(config, pubkey_cache, state, deposit_data)
-        }
+        BeaconState::Heze(_) => anyhow::bail!("legacy deposit processing was removed in Heze"),
     }
 }
 

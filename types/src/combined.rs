@@ -514,11 +514,11 @@ impl<P: Preset> BeaconState<P> {
             | Self::Altair(_)
             | Self::Bellatrix(_)
             | Self::Capella(_)
-            | Self::Deneb(_) => None,
+            | Self::Deneb(_)
+            | Self::Heze(_) => None,
             Self::Electra(state) => Some(state.deposit_requests_start_index),
             Self::Fulu(state) => Some(state.deposit_requests_start_index),
             Self::Gloas(state) => Some(state.deposit_requests_start_index),
-            Self::Heze(state) => Some(state.deposit_requests_start_index),
         }
     }
 

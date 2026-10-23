@@ -21,3 +21,5 @@ ssz-spec-tests/
 
 # exception logs
 exception.log
+
+/test-vectors/reports/

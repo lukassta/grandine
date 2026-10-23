@@ -899,6 +899,7 @@ pub fn process_operations<P: Preset, V: Verifier, B>(
 ) -> Result<()>
 where
     B: BlockBodyWithGloasAttestations<P>
+        + types::traits::PreHezeBeaconBlockBody<P>
         + BlockBodyWithGloasAttesterSlashings<P>
         + BlockBodyWithBlsToExecutionChanges<P>
         + BlockBodyWithPayloadAttestations<P>,

@@ -29,6 +29,10 @@
 //                      somehow (even with `Ordering::SeqCst`). Using Rayon in
 //                      `altair::epoch_intermediates::epoch_deltas` does the same.
 
+// fs_err is used by the separate reference-vector integration target.
+#[cfg(test)]
+use fs_err as _;
+
 pub mod combined;
 
 pub mod unphased {
@@ -240,19 +244,17 @@ pub mod fulu {
 
 pub mod gloas {
     pub use block_processing::{apply_parent_execution_payload, get_expected_withdrawals};
+    pub use epoch_processing::process_pending_deposits;
 
-    pub(crate) use block_processing::{
-        process_block, process_block_for_gossip, process_operations, process_withdrawals,
-    };
-    // Only used by Heze's block processing spec tests.
-    #[cfg(test)]
     pub(crate) use block_processing::{
         apply_attestation, process_payload_attestation, process_proposer_slashing,
         validate_attestation_with_verifier,
     };
+    pub(crate) use block_processing::{
+        process_block, process_block_for_gossip, process_withdrawals,
+    };
     pub(crate) use epoch_processing::{
-        process_builder_pending_payments, process_epoch, process_pending_deposits,
-        process_ptc_window,
+        process_builder_pending_payments, process_epoch, process_ptc_window,
     };
     pub(crate) use slot_processing::{process_slot, process_slots};
     pub(crate) use state_transition::{state_transition, verify_signatures};
@@ -266,8 +268,10 @@ pub mod gloas {
 }
 
 pub mod heze {
+    pub use block_processing::process_execution_payload_bid;
     pub(crate) use block_processing::{process_block, process_block_for_gossip};
     pub(crate) use epoch_processing::process_epoch;
+    pub use epoch_processing::{apply_pending_deposit, process_pending_deposits};
     pub(crate) use slot_processing::process_slots;
     pub(crate) use state_transition::{state_transition, verify_signatures};
 

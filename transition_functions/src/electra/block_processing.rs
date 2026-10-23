@@ -497,7 +497,7 @@ fn process_execution_payload<P: Preset>(
 pub fn process_operations<P: Preset, V: Verifier, B>(
     config: &Config,
     pubkey_cache: &PubkeyCache,
-    state: &mut impl PostElectraBeaconState<P>,
+    state: &mut impl types::traits::PreHezePostElectraBeaconState<P>,
     body: &B,
     mut verifier: V,
     mut slot_report: impl SlotReport,
@@ -844,7 +844,7 @@ pub fn validate_attestation_with_verifier<P: Preset>(
 pub fn process_deposit_data<P: Preset>(
     config: &Config,
     pubkey_cache: &PubkeyCache,
-    state: &mut impl PostElectraBeaconState<P>,
+    state: &mut (impl PostElectraBeaconState<P> + types::traits::PreHezeBeaconState<P>),
     deposit_data: DepositData,
 ) -> Result<Option<ValidatorIndex>> {
     let DepositData {
@@ -1170,7 +1170,7 @@ pub fn process_withdrawal_request<P: Preset>(
 
 #[cfg_attr(feature = "tracing", tracing::instrument(level = "debug", skip_all))]
 pub fn process_deposit_request<P: Preset>(
-    state: &mut impl PostElectraBeaconState<P>,
+    state: &mut impl types::traits::PreHezePostElectraBeaconState<P>,
     deposit_request: DepositRequest,
 ) -> Result<()> {
     let DepositRequest {
@@ -1365,6 +1365,7 @@ fn compute_source_address(validator: &PartialValidator) -> ExecutionAddress {
 #[cfg(test)]
 mod spec_tests {
     use core::fmt::Debug;
+    use types::traits::PreHezeBeaconState as _;
 
     use execution_engine::MockExecutionEngine;
     use helper_functions::verifier::{NullVerifier, SingleVerifier};
