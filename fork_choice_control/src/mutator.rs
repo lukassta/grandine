@@ -5612,7 +5612,7 @@ where
         head_state: &Arc<BeaconState<P>>,
         metrics: &Arc<Metrics>,
     ) -> Result<()> {
-        if let Some(legacy) = head_state.pre_heze() {
+        if let Some(legacy) = head_state.eth1_deposits() {
             metrics.set_beacon_processed_deposits_total(legacy.eth1_deposit_index());
         }
         metrics.set_validator_count(head_state.validators().len_usize());

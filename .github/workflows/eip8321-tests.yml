@@ -10,7 +10,8 @@ on:
       - 'scripts/test_eip8321.sh'
       - 'patches/**'
       - 'fork_choice_store/**'
-      - 'test-vectors/**'
+      - 'scripts/generate_reference_vectors.py'
+      - 'testing/reference-vectors/**'
       - 'transition_functions/**'
       - 'helper_functions/**'
       - 'types/**'
@@ -37,7 +38,7 @@ env:
 jobs:
   eip8321:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 90
     defaults:
       run:
         shell: bash
@@ -70,10 +71,23 @@ jobs:
           key: eip8321-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', '.github/workflows/eip8321-tests.yml') }}-${{ github.sha }}
           restore-keys: |
             eip8321-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', '.github/workflows/eip8321-tests.yml') }}-
+      - name: Cache official reference vectors
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: test-vectors/reference
+          key: reference-all-${{ hashFiles('testing/reference-vectors/**', 'scripts/generate_reference_vectors.py') }}
+      - name: Install the official generator package manager
+        shell: bash
+        run: python3 -m pip install uv==0.13.0
+      - name: Generate or verify official reference vectors
+        shell: bash
+        run: python3 scripts/generate_reference_vectors.py --suite all
       - name: Execute official EIP-8321 vectors and signature regressions
         run: |
           mkdir -p test-vectors/reports
           bash scripts/test_eip8321.sh all 2>&1 | tee test-vectors/reports/eip8321-execution.log
+      - name: Execute additional project regressions
+        run: bash scripts/test_eip8321.sh regressions
       - name: Execute Heze and Gloas regressions
         run: bash scripts/test_heze.sh all 2>&1 | tee test-vectors/reports/heze-regression.log
       - name: Upload per-case results and logs

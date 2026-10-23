@@ -12,11 +12,12 @@ case "${1:-all}" in
   *) echo 'Usage: bash scripts/test_heze.sh [all|minimal|mainnet|inventory]' >&2; exit 2 ;;
 esac
 if [[ -z "${HEZE_VECTORS_DIR:-}" ]]; then
-  (cd test-vectors && sha256sum --check --status heze.sha256)
+  python3 scripts/generate_reference_vectors.py --suite heze
+  export HEZE_VECTORS_DIR="$PWD/test-vectors/reference"
 fi
 cargo test --locked --release \
   -p transition_functions -p bls -p kzg_utils \
-  --features bls/blst,kzg_utils/blst \
+  --features transition_functions/reference-tests,bls/blst,kzg_utils/blst \
   --test heze_reference_vectors "$filter" -- --nocapture
 
 if [[ "$filter" == heze_ ]]; then

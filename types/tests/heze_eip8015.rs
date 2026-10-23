@@ -50,11 +50,15 @@ fn heze_eip8015_body_rejects_retired_fields() -> Result<(), serde_json::Error> {
 #[test]
 fn heze_eip8015_legacy_capabilities_end_at_gloas() {
     let mut state: BeaconState<Minimal> = HezeState::default().into();
-    assert!(state.pre_heze().is_none());
-    assert!(state.pre_heze_mut().is_none());
+    assert!(state.eth1_deposits().is_none());
+    assert!(state.eth1_deposits_mut().is_none());
     assert!(state.deposit_requests_start_index().is_none());
-    assert!(BeaconBlockBody::<Minimal>::default().pre_heze().is_none());
+    assert!(
+        BeaconBlockBody::<Minimal>::default()
+            .eth1_deposits()
+            .is_none()
+    );
     let state: BeaconState<Minimal> = types::gloas::beacon_state::BeaconState::default().into();
-    assert!(state.pre_heze().is_some());
+    assert!(state.eth1_deposits().is_some());
     assert!(state.deposit_requests_start_index().is_some());
 }

@@ -336,3 +336,10 @@ prepare-eip8321-dependencies:
 	bash scripts/prepare_eip8321_dependencies.sh
 
 check build test minimal release: prepare-eip8321-dependencies
+
+.PHONY: test-eip8321-regressions
+test-eip8321-regressions:
+	bash scripts/test_eip8321.sh regressions
+
+# Include pinned experimental reference cases when running the complete Make suite.
+test: test-heze test-eip8321

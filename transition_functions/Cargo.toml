@@ -42,5 +42,19 @@ spec_test_utils = { workspace = true }
 test-generator = { workspace = true }
 
 [features]
+# The pinned experimental reference suite is supplied by the dedicated runner/CI.
+reference-tests = []
 metrics = ['helper_functions/metrics', 'dep:prometheus_metrics']
 tracing = ['helper_functions/tracing', 'dep:tracing']
+
+[[test]]
+name = 'eip8321_reference_vectors'
+required-features = ['reference-tests']
+
+[[test]]
+name = 'heze_reference_vectors'
+required-features = ['reference-tests']
+
+[[test]]
+name = 'eip8321_regressions'
+required-features = ['reference-tests']

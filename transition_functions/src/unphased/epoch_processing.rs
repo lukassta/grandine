@@ -159,7 +159,7 @@ pub fn process_registry_updates<P: Preset>(
 }
 
 pub fn process_eth1_data_reset<P: Preset>(
-    state: &mut (impl types::traits::PreHezeBeaconState<P> + ?Sized),
+    state: &mut (impl types::traits::Eth1DepositState<P> + ?Sized),
 ) -> Result<()> {
     let next_epoch = get_next_epoch(state)?;
 

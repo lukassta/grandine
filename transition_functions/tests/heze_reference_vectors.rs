@@ -34,7 +34,7 @@ use types::{
 
 fn root() -> PathBuf {
     std::env::var_os("HEZE_VECTORS_DIR").map_or_else(
-        || Path::new(env!("CARGO_MANIFEST_DIR")).join("../test-vectors/heze"),
+        || Path::new(env!("CARGO_MANIFEST_DIR")).join("../test-vectors/reference"),
         PathBuf::from,
     )
 }
@@ -350,8 +350,8 @@ fn heze_upgrade_preserves_gloas_and_initializes_focil_bits() -> Result<()> {
 
 #[test]
 fn heze_preserves_gloas_reference_transitions() -> Result<()> {
-    let dir =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../test-vectors/gloas/minimal/gloas/sanity");
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../test-vectors/reference/minimal/gloas/sanity");
     for (kind, names) in [
         ("slots", &["slots_1", "empty_epoch"][..]),
         (
@@ -390,8 +390,8 @@ fn heze_mainnet_fork() -> Result<()> {
 }
 #[test]
 fn heze_preserves_gloas_bls_validator_registration() -> Result<()> {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(
-        "../test-vectors/gloas/minimal/gloas/epoch_processing/pending_deposits/pyspec_tests/apply_pending_deposit_min_activation");
+    let path = root().join(
+        "minimal/gloas/epoch_processing/pending_deposits/pyspec_tests/apply_pending_deposit_min_activation");
     let case = Case::from(path.to_str().context("Gloas fixture path")?);
     let pre =
         types::gloas::beacon_state::BeaconState::<Minimal>::from_ssz_default(bytes(case, "pre"))?;

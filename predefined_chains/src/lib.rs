@@ -60,7 +60,7 @@ mod tests {
         assert!(state.state_roots().is_default());
         assert!(state.historical_roots().is_default());
 
-        if let Some(legacy) = state.pre_heze() {
+        if let Some(legacy) = state.eth1_deposits() {
             assert!(legacy.eth1_data_votes().is_default());
         }
 

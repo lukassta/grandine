@@ -290,7 +290,7 @@ mod tests {
 
         // Enough deposits to fill block #1 and leave one for block #2.
         let block_0_count = state_0
-            .pre_heze()
+            .eth1_deposits()
             .expect("fixture is a pre-Heze state")
             .eth1_deposit_index();
         let block_1_count = block_0_count + <Minimal as Preset>::MaxDeposits::U64;
@@ -315,7 +315,7 @@ mod tests {
         // Fake a successful `Eth1Data` vote for multiple new deposits.
         *state_0
             .make_mut()
-            .pre_heze_mut()
+            .eth1_deposits_mut()
             .expect("fixture is a pre-Heze state")
             .eth1_data_mut() = Eth1Data {
             deposit_root: deposit_root_2,
@@ -354,7 +354,7 @@ mod tests {
 
         assert_eq!(
             state_2
-                .pre_heze()
+                .eth1_deposits()
                 .expect("fixture is a pre-Heze state")
                 .eth1_deposit_index(),
             block_2_count

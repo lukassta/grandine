@@ -101,7 +101,7 @@ pub fn empty_block<P: Preset>(
 ) -> Result<BlockWithState<P>> {
     let advanced_state = advance_state(config, pubkey_cache, pre_state, slot)?;
     let eth1_data = advanced_state
-        .pre_heze()
+        .eth1_deposits()
         .map(|state| state.eth1_data())
         .unwrap_or_default();
     let attestations = core::iter::empty();
@@ -132,7 +132,7 @@ pub fn block_justifying_previous_epoch<P: Preset>(
     let block_slot = misc::compute_start_slot_at_epoch::<P>(epoch);
     let advanced_state = advance_state(config, pubkey_cache, pre_state, block_slot)?;
     let eth1_data = advanced_state
-        .pre_heze()
+        .eth1_deposits()
         .map(|state| state.eth1_data())
         .unwrap_or_default();
     let attestation_slots = misc::slots_in_epoch::<P>(epoch.saturating_sub(1))?;
@@ -167,7 +167,7 @@ pub fn block_justifying_current_epoch<P: Preset>(
 
     let advanced_state = advance_state(config, pubkey_cache, pre_state, block_slot)?;
     let eth1_data = advanced_state
-        .pre_heze()
+        .eth1_deposits()
         .map(|state| state.eth1_data())
         .unwrap_or_default();
     let attestation_slots = misc::compute_start_slot_at_epoch::<P>(epoch)..block_slot;
@@ -197,7 +197,7 @@ pub fn block_with_deposits<P: Preset>(
 ) -> Result<BlockWithState<P>> {
     let advanced_state = advance_state(config, pubkey_cache, pre_state, slot)?;
     let eth1_data = advanced_state
-        .pre_heze()
+        .eth1_deposits()
         .map(|state| state.eth1_data())
         .unwrap_or_default();
     let graffiti = H256::zero();
@@ -255,7 +255,7 @@ pub fn block_with_payload<P: Preset>(
 ) -> Result<BlockWithState<P>> {
     let advanced_state = advance_state(config, pubkey_cache, pre_state, slot)?;
     let eth1_data = advanced_state
-        .pre_heze()
+        .eth1_deposits()
         .map(|state| state.eth1_data())
         .unwrap_or_default();
     let attestations = core::iter::empty();
@@ -288,7 +288,7 @@ pub fn empty_block_extending_parent_payload<P: Preset>(
 ) -> Result<BlockWithState<P>> {
     let advanced_state = advance_state(config, pubkey_cache, pre_state, slot)?;
     let eth1_data = advanced_state
-        .pre_heze()
+        .eth1_deposits()
         .map(|state| state.eth1_data())
         .unwrap_or_default();
     let attestations = core::iter::empty();
@@ -381,7 +381,7 @@ pub fn full_blocks_up_to_epoch<P: Preset>(
     for slot in start_slot..=end_slot {
         let advanced_state = advance_state(config, pubkey_cache, pre_state, slot)?;
         let eth1_data = advanced_state
-            .pre_heze()
+            .eth1_deposits()
             .map(|state| state.eth1_data())
             .unwrap_or_default();
         let graffiti = H256::zero();

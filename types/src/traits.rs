@@ -194,8 +194,8 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     fn balances_mut_with_slashings(&mut self) -> (&mut dyn SszListMut<Gwei>, &Slashings<P>);
 
     fn randao_commitments_mut(&mut self) -> Option<&mut ssz::PersistentProgressiveList<H256>>;
-    fn pre_heze(&self) -> Option<&dyn PreHezeBeaconState<P>>;
-    fn pre_heze_mut(&mut self) -> Option<&mut dyn PreHezeBeaconState<P>>;
+    fn eth1_deposits(&self) -> Option<&dyn Eth1DepositState<P>>;
+    fn eth1_deposits_mut(&mut self) -> Option<&mut dyn Eth1DepositState<P>>;
     fn post_electra(&self) -> Option<&dyn PostElectraBeaconState<P>>;
     fn post_fulu(&self) -> Option<&dyn PostFuluBeaconState<P>>;
     fn post_gloas(&self) -> Option<&dyn PostGloasBeaconState<P>>;
@@ -223,8 +223,8 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     is_post_electra_body
     is_post_fulu_body
     is_post_gloas_body
-    pre_heze_body
-    pre_heze_mut_body
+    eth1_deposits_body
+    eth1_deposits_mut_body
     randao_commitments_mut_body;
 
     [P: Preset, S: BeaconState<P> + Clone]
@@ -241,8 +241,8 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     [self.as_ref().is_post_electra()]
     [self.as_ref().is_post_fulu()]
     [self.as_ref().is_post_gloas()]
-    [self.as_ref().pre_heze()]
-    [self.make_mut().pre_heze_mut()]
+    [self.as_ref().eth1_deposits()]
+    [self.make_mut().eth1_deposits_mut()]
     [self.make_mut().randao_commitments_mut()];
 
     [P: Preset, S: BeaconState<P>]
@@ -259,8 +259,8 @@ pub trait BeaconState<P: Preset>: SszHash<PackingFactor = U1> + Send + Sync {
     [self.as_ref().is_post_electra()]
     [self.as_ref().is_post_fulu()]
     [self.as_ref().is_post_gloas()]
-    [self.as_ref().pre_heze()]
-    [self.as_mut().pre_heze_mut()]
+    [self.as_ref().eth1_deposits()]
+    [self.as_mut().eth1_deposits_mut()]
     [self.as_mut().randao_commitments_mut()];
 
     [P: Preset]
@@ -629,11 +629,11 @@ impl<parameters> BeaconState<P> for implementor {
         randao_commitments_mut_body
     }
 
-    fn pre_heze(&self) -> Option<&dyn PreHezeBeaconState<P>> {
-        pre_heze_body
+    fn eth1_deposits(&self) -> Option<&dyn Eth1DepositState<P>> {
+        eth1_deposits_body
     }
-    fn pre_heze_mut(&mut self) -> Option<&mut dyn PreHezeBeaconState<P>> {
-        pre_heze_mut_body
+    fn eth1_deposits_mut(&mut self) -> Option<&mut dyn Eth1DepositState<P>> {
+        eth1_deposits_mut_body
     }
 
     fn post_electra(&self) -> Option<&dyn PostElectraBeaconState<P>> {
@@ -1459,7 +1459,7 @@ pub trait BeaconBlockBody<P: Preset>: SszHash<PackingFactor = U1> {
     fn attestations_len(&self) -> usize;
     fn attestations_root(&self) -> H256;
 
-    fn pre_heze(&self) -> Option<&dyn PreHezeBeaconBlockBody<P>>;
+    fn eth1_deposits(&self) -> Option<&dyn BlockBodyWithEth1Deposits<P>>;
     fn pre_electra(&self) -> Option<&dyn PreElectraBeaconBlockBody<P>>;
 
     fn with_sync_aggregate(&self) -> Option<&dyn BlockBodyWithSyncAggregate<P>>;
@@ -1480,7 +1480,7 @@ pub trait BeaconBlockBody<P: Preset>: SszHash<PackingFactor = U1> {
 }
 
 #[duplicate_item(
-    implementor                          pre_electra_body body_with_sync_aggregate body_with_execution_payload body_with_bls_to_execution_changes body_with_blob_kzg_commitments body_with_electra_attestations body_with_gloas_attestations body_with_execution_requests body_with_payload_bid body_with_payload_attestations pre_heze_body;
+    implementor                          pre_electra_body body_with_sync_aggregate body_with_execution_payload body_with_bls_to_execution_changes body_with_blob_kzg_commitments body_with_electra_attestations body_with_gloas_attestations body_with_execution_requests body_with_payload_bid body_with_payload_attestations eth1_deposits_body;
 
     [Phase0BeaconBlockBody<P>]           [Some(self)]     [None]           [None]           [None]           [None]           [None]           [None]           [None]           [None]           [None] [Some(self)];
     [AltairBeaconBlockBody<P>]           [Some(self)]     [Some(self)]     [None]           [None]           [None]           [None]           [None]           [None]           [None]           [None] [Some(self)];
@@ -1534,8 +1534,8 @@ impl<P: Preset> BeaconBlockBody<P> for implementor {
         self.attestations.hash_tree_root()
     }
 
-    fn pre_heze(&self) -> Option<&dyn PreHezeBeaconBlockBody<P>> {
-        pre_heze_body
+    fn eth1_deposits(&self) -> Option<&dyn BlockBodyWithEth1Deposits<P>> {
+        eth1_deposits_body
     }
 
     fn pre_electra(&self) -> Option<&dyn PreElectraBeaconBlockBody<P>> {
@@ -1590,7 +1590,7 @@ impl<P: Preset> BeaconBlockBody<P> for implementor {
     }
 }
 
-pub trait PreElectraBeaconBlockBody<P: Preset>: PreHezeBeaconBlockBody<P> {
+pub trait PreElectraBeaconBlockBody<P: Preset>: BlockBodyWithEth1Deposits<P> {
     fn attestations(&self) -> &ContiguousList<Phase0Attestation<P>, P::MaxAttestations>;
     fn attester_slashings(
         &self,
@@ -1783,7 +1783,7 @@ impl<P: Preset> BlockBodyWithSyncAggregate<P> for FuluBlindedBeaconBlockBody<P> 
 }
 
 // Previously `PostBellatrixBeaconBlockBody`
-pub trait BlockBodyWithExecutionPayload<P: Preset>: PreHezeBeaconBlockBody<P> {
+pub trait BlockBodyWithExecutionPayload<P: Preset>: BlockBodyWithEth1Deposits<P> {
     fn execution_payload(&self) -> &dyn ExecutionPayload<P>;
 }
 
@@ -1976,7 +1976,7 @@ impl<P: Preset> BlockBodyWithBlobKzgCommitments<P> for Eip8321BeaconBlockBody<P>
 }
 
 // Previously in `PostElectraBeaconBlockBody`
-pub trait BlockBodyWithElectraAttestations<P: Preset>: PreHezeBeaconBlockBody<P> {
+pub trait BlockBodyWithElectraAttestations<P: Preset>: BlockBodyWithEth1Deposits<P> {
     fn attestations(&self) -> &ContiguousList<ElectraAttestation<P>, P::MaxAttestationsElectra>;
 }
 
@@ -2627,9 +2627,9 @@ pub trait SszValidatorListMut: SszValidatorList {
 
     fn push(&mut self, validator: Validator) -> Result<(), PushError>;
 }
-// EIP-8015 removes these capabilities from Heze. Shared post-Heze algorithms
-// cannot accidentally read or mutate retired Eth1 bridge fields.
-pub trait PreHezeBeaconState<P: Preset>: BeaconState<P> {
+/// Fields used by the Eth1 voting and deposit bridge.
+/// This capability is independent of fork names; schemas without the bridge omit it.
+pub trait Eth1DepositState<P: Preset>: BeaconState<P> {
     fn eth1_data(&self) -> Eth1Data;
     fn eth1_data_votes(&self) -> &Eth1DataVotes<P>;
     fn eth1_deposit_index(&self) -> DepositIndex;
@@ -2647,7 +2647,7 @@ pub trait PreHezeBeaconState<P: Preset>: BeaconState<P> {
 [FuluBeaconState];
 [GloasBeaconState];
 )]
-impl<P: Preset> PreHezeBeaconState<P> for state<P> {
+impl<P: Preset> Eth1DepositState<P> for state<P> {
     fn eth1_data(&self) -> Eth1Data {
         self.eth1_data
     }
@@ -2668,7 +2668,7 @@ impl<P: Preset> PreHezeBeaconState<P> for state<P> {
     }
 }
 
-impl<P: Preset, S: PreHezeBeaconState<P>> PreHezeBeaconState<P> for Hc<S> {
+impl<P: Preset, S: Eth1DepositState<P>> Eth1DepositState<P> for Hc<S> {
     fn eth1_data(&self) -> Eth1Data {
         self.as_ref().eth1_data()
     }
@@ -2689,7 +2689,7 @@ impl<P: Preset, S: PreHezeBeaconState<P>> PreHezeBeaconState<P> for Hc<S> {
     }
 }
 
-impl<P: Preset, S: PreHezeBeaconState<P> + Clone> PreHezeBeaconState<P> for Arc<S> {
+impl<P: Preset, S: Eth1DepositState<P> + Clone> Eth1DepositState<P> for Arc<S> {
     fn eth1_data(&self) -> Eth1Data {
         self.as_ref().eth1_data()
     }
@@ -2710,14 +2710,14 @@ impl<P: Preset, S: PreHezeBeaconState<P> + Clone> PreHezeBeaconState<P> for Arc<
     }
 }
 
-pub trait PreHezePostElectraBeaconState<P: Preset>:
-    PostElectraBeaconState<P> + PreHezeBeaconState<P>
+pub trait DepositRequestsStartIndexState<P: Preset>:
+    PostElectraBeaconState<P> + Eth1DepositState<P>
 {
     fn deposit_requests_start_index(&self) -> DepositIndex;
     fn deposit_requests_start_index_mut(&mut self) -> &mut DepositIndex;
 }
 #[duplicate_item(state; [ElectraBeaconState]; [FuluBeaconState]; [GloasBeaconState];)]
-impl<P: Preset> PreHezePostElectraBeaconState<P> for state<P> {
+impl<P: Preset> DepositRequestsStartIndexState<P> for state<P> {
     fn deposit_requests_start_index(&self) -> DepositIndex {
         self.deposit_requests_start_index
     }
@@ -2725,7 +2725,7 @@ impl<P: Preset> PreHezePostElectraBeaconState<P> for state<P> {
         &mut self.deposit_requests_start_index
     }
 }
-impl<P: Preset, S: PreHezePostElectraBeaconState<P>> PreHezePostElectraBeaconState<P> for Hc<S> {
+impl<P: Preset, S: DepositRequestsStartIndexState<P>> DepositRequestsStartIndexState<P> for Hc<S> {
     fn deposit_requests_start_index(&self) -> DepositIndex {
         self.as_ref().deposit_requests_start_index()
     }
@@ -2733,7 +2733,7 @@ impl<P: Preset, S: PreHezePostElectraBeaconState<P>> PreHezePostElectraBeaconSta
         self.as_mut().deposit_requests_start_index_mut()
     }
 }
-pub trait PreHezeBeaconBlockBody<P: Preset>: BeaconBlockBody<P> {
+pub trait BlockBodyWithEth1Deposits<P: Preset>: BeaconBlockBody<P> {
     fn eth1_data(&self) -> Eth1Data;
     fn deposits(&self) -> &dyn SszList<Deposit>;
 }
@@ -2752,7 +2752,7 @@ pub trait PreHezeBeaconBlockBody<P: Preset>: BeaconBlockBody<P> {
 [ElectraBlindedBeaconBlockBody];
 [FuluBlindedBeaconBlockBody];
  )]
-impl<P: Preset> PreHezeBeaconBlockBody<P> for body<P> {
+impl<P: Preset> BlockBodyWithEth1Deposits<P> for body<P> {
     fn eth1_data(&self) -> Eth1Data {
         self.eth1_data
     }

@@ -40,7 +40,7 @@ fn heze_eip8015_genesis_finishes_without_legacy_fields() -> Result<()> {
     builder.add_deposit_data(&cache, data, 1)?;
     let (state, _) = builder.finish(&cache, ExecutionBlockHash::repeat_byte(9), None)?;
     assert_eq!(state.phase(), Phase::Heze);
-    assert!(state.pre_heze().is_none());
+    assert!(state.eth1_deposits().is_none());
     assert_eq!(state.validators().len_usize(), 1);
     assert_eq!(state.fork().current_version, config.heze_fork_version);
     assert_eq!(state.fork().previous_version, config.heze_fork_version);

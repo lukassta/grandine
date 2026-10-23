@@ -1,6 +1,0 @@
-preset: mainnet
-fork: heze
-runner: epoch_processing
-handler: pending_deposits
-suite: pyspec_tests
-case: bls_withdrawal_credentials_queued_before_heze

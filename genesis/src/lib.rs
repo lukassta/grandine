@@ -254,7 +254,7 @@ impl<'config, P: Preset> Incremental<'config, P> {
         let is_post_electra = self.beacon_state.is_post_electra();
         let eth1_data = self
             .beacon_state
-            .pre_heze_mut()
+            .eth1_deposits_mut()
             .expect("genesis builder uses legacy deposits before its final upgrade")
             .eth1_data_mut();
 
@@ -350,7 +350,7 @@ impl<'config, P: Preset> Incremental<'config, P> {
         } = self;
 
         beacon_state
-            .pre_heze_mut()
+            .eth1_deposits_mut()
             .expect("genesis builder upgrades only after assembling deposits")
             .eth1_data_mut()
             .block_hash = eth1_block_hash;

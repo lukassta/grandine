@@ -30,3 +30,8 @@ exception.log
 /consensus-spec-tests
 /cryptography-spec-tests
 /ssz-spec-tests
+
+# Official reference vectors are generated or cached, never committed.
+/test-vectors/
+
+__pycache__/

@@ -83,12 +83,6 @@ jobs:
       - name: Check if code is formatted (Linux)
         if: runner.os == 'Linux'
         run: cargo fmt --check
-      - name: Extract pinned EIP-8321 fixtures
-        shell: bash
-        run: |
-          (cd test-vectors && sha256sum --check --status eip8321.sha256)
-          mkdir -p test-vectors/eip8321
-          tar --no-same-owner --no-same-permissions -xzf test-vectors/eip8321-vectors.tar.gz -C test-vectors/eip8321
       - name: Download consensus-spec-tests
         run: bash scripts/download_spec_tests.sh
       - name: Run Clippy (Linux)
