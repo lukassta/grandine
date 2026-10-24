@@ -39,7 +39,7 @@ download-spec-tests:
 
 .PHONY: test
 test: download-spec-tests
-	cargo test --release --features default-networks,stub-grandine-version $(EXCLUDES)
+	cargo test --no-fail-fast --release --features default-networks,stub-grandine-version $(EXCLUDES)
 
 .PHONY: minimal
 minimal:

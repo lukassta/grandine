@@ -1182,6 +1182,8 @@ mod spec_tests {
         ["consensus-spec-tests/tests/minimal/gloas/sanity/slots/*/*"]     [gloas_minimal_slots]     [Minimal] [Gloas];
         ["consensus-spec-tests/tests/mainnet/heze/sanity/slots/*/*"]      [heze_mainnet_slots]      [Mainnet] [Heze];
         ["consensus-spec-tests/tests/minimal/heze/sanity/slots/*/*"]      [heze_minimal_slots]      [Minimal] [Heze];
+        ["consensus-spec-tests/tests/mainnet/eip8321/sanity/slots/*/*"]   [eip8321_mainnet_slots]   [Mainnet] [Eip8321];
+        ["consensus-spec-tests/tests/minimal/eip8321/sanity/slots/*/*"]   [eip8321_minimal_slots]   [Minimal] [Eip8321];
     )]
     #[test_resources(glob)]
     fn function_name(case: Case) {
@@ -1245,6 +1247,12 @@ mod spec_tests {
         ["consensus-spec-tests/tests/minimal/heze/finality/*/*/*"]         [heze_minimal_finality]      [Minimal] [Heze];
         ["consensus-spec-tests/tests/minimal/heze/random/*/*/*"]           [heze_minimal_random]        [Minimal] [Heze];
         ["consensus-spec-tests/tests/minimal/heze/sanity/blocks/*/*"]      [heze_minimal_sanity]        [Minimal] [Heze];
+        ["consensus-spec-tests/tests/mainnet/eip8321/finality/*/*/*"]      [eip8321_mainnet_finality]   [Mainnet] [Eip8321];
+        // ["consensus-spec-tests/tests/mainnet/eip8321/random/*/*/*"]        [eip8321_mainnet_random]     [Mainnet] [Eip8321];
+        ["consensus-spec-tests/tests/mainnet/eip8321/sanity/blocks/*/*"]   [eip8321_mainnet_sanity]     [Mainnet] [Eip8321];
+        ["consensus-spec-tests/tests/minimal/eip8321/finality/*/*/*"]      [eip8321_minimal_finality]   [Minimal] [Eip8321];
+        // ["consensus-spec-tests/tests/minimal/eip8321/random/*/*/*"]        [eip8321_minimal_random]     [Minimal] [Eip8321];
+        ["consensus-spec-tests/tests/minimal/eip8321/sanity/blocks/*/*"]   [eip8321_minimal_sanity]     [Minimal] [Eip8321];
     )]
     #[test_resources(glob)]
     fn function_name(case: Case) {
@@ -1270,6 +1278,8 @@ mod spec_tests {
         ["consensus-spec-tests/tests/minimal/gloas/transition/*/*/*"]     [gloas_minimal_transition]      [Minimal];
         ["consensus-spec-tests/tests/mainnet/heze/transition/*/*/*"]      [heze_mainnet_transition]       [Mainnet];
         ["consensus-spec-tests/tests/minimal/heze/transition/*/*/*"]      [heze_minimal_transition]       [Minimal];
+        // ["consensus-spec-tests/tests/mainnet/eip8321/transition/*/*/*"]   [eip8321_mainnet_transition]    [Mainnet];
+        // ["consensus-spec-tests/tests/minimal/eip8321/transition/*/*/*"]   [eip8321_minimal_transition]    [Minimal];
     )]
     #[test_resources(glob)]
     fn function_name(case: Case) {
