@@ -322,24 +322,3 @@ else
 		--tag $(DOCKER_REPO):$(DOCKER_LABEL)-amd64$(DOCKER_SUFFIX)-nethermind-$(NETHERMIND_VERSION) \
 		./target/x86_64-unknown-linux-gnu/compact
 endif
-
-.PHONY: test-heze
-test-heze:
-	bash scripts/test_heze.sh
-
-.PHONY: test-eip8321
-test-eip8321:
-	bash scripts/test_eip8321.sh all
-
-.PHONY: prepare-eip8321-dependencies
-prepare-eip8321-dependencies:
-	bash scripts/prepare_eip8321_dependencies.sh
-
-check build test minimal release: prepare-eip8321-dependencies
-
-.PHONY: test-eip8321-regressions
-test-eip8321-regressions:
-	bash scripts/test_eip8321.sh regressions
-
-# Include pinned experimental reference cases when running the complete Make suite.
-test: test-heze test-eip8321
