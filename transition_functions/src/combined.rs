@@ -552,7 +552,7 @@ pub fn process_slots<P: Preset>(
                 }
 
                 if Toption::Some(last_slot_in_phase) == heze_fork_slot {
-                    *state = fork::upgrade_to_heze(config, gloas_state.as_ref().clone())?.into();
+                    *state = fork::upgrade_to_heze(config, gloas_state.as_ref().clone()).into();
 
                     made_progress = true;
                 }
@@ -780,7 +780,7 @@ fn post_process_slots_for_epoch_report<P: Preset>(
                 let heze_fork_slot = config.fork_slot::<P>(Phase::Heze);
 
                 if Toption::Some(post_slot) == heze_fork_slot {
-                    *state = fork::upgrade_to_heze(config, gloas_state.as_ref().clone())?.into();
+                    *state = fork::upgrade_to_heze(config, gloas_state.as_ref().clone()).into();
                 }
             }
             BeaconState::Heze(pre) => {
@@ -1362,9 +1362,13 @@ mod spec_tests {
 
         let mut state = case.ssz(&config, "pre");
 
-        let expected_post = case.ssz::<_, BeaconState<P>>(&config, "post");
+        // Cases that expect the transition to be rejected ship no post state,
+        // just like in `run_blocks_case`.
+        let expected_post = case.try_ssz::<_, BeaconState<P>>(&config, "post");
 
-        assert_eq!(expected_post.phase(), post_phase);
+        if let Some(expected_post) = expected_post.as_ref() {
+            assert_eq!(expected_post.phase(), post_phase);
+        }
 
         for pre_block in case.numbered(&config, "blocks", 0..pre_block_count) {
             untrusted_state_transition(&config, &pubkey_cache, &mut state, &pre_block)
@@ -1373,12 +1377,20 @@ mod spec_tests {
 
         assert!(accessors::get_current_epoch(&state) < fork_epoch);
 
-        for post_block in case.numbered(&config, "blocks", pre_block_count..blocks_count) {
-            untrusted_state_transition(&config, &pubkey_cache, &mut state, &post_block)
-                .expect("every transition test should process post-phase blocks successfully");
-        }
+        let post_blocks_result = case
+            .numbered(&config, "blocks", pre_block_count..blocks_count)
+            .try_for_each(|post_block| {
+                untrusted_state_transition(&config, &pubkey_cache, &mut state, &post_block)
+            });
 
-        assert_eq!(state, expected_post);
+        if let Some(expected_post) = expected_post {
+            post_blocks_result
+                .expect("every transition test should process post-phase blocks successfully");
+
+            assert_eq!(state, expected_post);
+        } else {
+            post_blocks_result.expect_err("state transition should fail");
+        }
     }
 
     fn should_run_blinded_block_processing<P: Preset>(
