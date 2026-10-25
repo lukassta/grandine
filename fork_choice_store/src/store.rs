@@ -84,8 +84,8 @@ use types::{
     },
     preset::{DataAvailabilityTimelyThreshold, PayloadTimelyThreshold, Preset},
     traits::{
-        BeaconState as BeaconStateTrait, PayloadBid, PostGloasBeaconState, SignedBeaconBlock as _,
-        SszValidatorList,
+        BeaconState as BeaconStateTrait, BlockBodyWithPayloadBid, PayloadBid, PostGloasBeaconState,
+        SignedBeaconBlock as _, SszValidatorList,
     },
 };
 use unwrap_none::UnwrapNone as _;
@@ -3064,7 +3064,7 @@ impl<P: Preset, S: Storage<P>> Store<P, S> {
 
         // [REJECT] The includer is a member of the committee
         ensure!(
-            committee.iter().any(|&index| index == validator_index),
+            committee.contains(&validator_index),
             Error::<P>::InclusionListValidatorNotInCommittee {
                 signed_inclusion_list,
             },
@@ -4443,7 +4443,7 @@ impl<P: Preset, S: Storage<P>> Store<P, S> {
             .message()
             .body()
             .with_payload_bid()
-            .map(|body| body.payload_bid())
+            .map(BlockBodyWithPayloadBid::payload_bid)
         else {
             return Err(Error::PayloadEnvelopeInvalidBlock {
                 payload_envelope: envelope,
