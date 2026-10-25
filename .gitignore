@@ -18,20 +18,9 @@ book/deploy
 consensus-spec-tests/
 cryptography-spec-tests/
 ssz-spec-tests/
+test-vectors/
 
 # exception logs
 exception.log
-
-/test-vectors/reports/
-
-/test-vectors/eip8321/
-
-# Local reference archives may also be directory symlinks.
-/consensus-spec-tests
-/cryptography-spec-tests
-/ssz-spec-tests
-
-# Official reference vectors are generated or cached, never committed.
-/test-vectors/
 
 __pycache__/
