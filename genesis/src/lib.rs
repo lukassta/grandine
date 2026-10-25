@@ -395,7 +395,7 @@ impl<'config, P: Preset> Incremental<'config, P> {
             let BeaconState::Gloas(pre) = beacon_state else {
                 anyhow::bail!("Heze genesis must be assembled from Gloas");
             };
-            let mut post = helper_functions::fork::upgrade_to_heze(config, pre.as_ref().clone())?;
+            let mut post = helper_functions::fork::upgrade_to_heze(config, pre.as_ref().clone());
             // Genesis has no preceding fork or block.
             post.fork.previous_version = post.fork.current_version;
             post.latest_block_header.body_root = types::heze::containers::BeaconBlockBody::<P> {

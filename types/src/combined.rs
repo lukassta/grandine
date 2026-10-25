@@ -1154,6 +1154,10 @@ impl<P: Preset> BeaconBlock<P> {
             (Self::Heze(block), SignedExecutionPayloadBid::Heze(payload_bid)) => {
                 block.body.signed_execution_payload_bid = payload_bid;
             }
+            // EIP-8321 reuses Heze's bid container unchanged.
+            (Self::Eip8321(block), SignedExecutionPayloadBid::Heze(payload_bid)) => {
+                block.body.signed_execution_payload_bid = payload_bid;
+            }
             _ => {
                 // This match arm will silently match any new phases.
                 // Cause a compilation error if a new phase is added.

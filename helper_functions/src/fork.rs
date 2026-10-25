@@ -951,15 +951,16 @@ pub fn upgrade_to_gloas<P: Preset>(
     Ok(post_state)
 }
 
+// EIP-8015 drops the Eth1 bridge fields here. An earlier version of this port also asserted
+// `pre.eth1_deposit_index == pre.deposit_requests_start_index` ("the bridge must be complete").
+// That assert is not in the pinned spec: `upgrade_to_heze` is infallible there, the spec's own
+// `run_fork_test` helper checks nothing about the bridge, and every official `heze`/`eip8321`
+// fork and transition vector expects the upgrade to succeed. It also made the upgrade fail for
+// any chain that never processed a deposit request, which would stop a node dead at a scheduled
+// fork, so it is deliberately not enforced.
+#[must_use]
 #[expect(clippy::too_many_lines)]
-pub fn upgrade_to_heze<P: Preset>(
-    config: &Config,
-    pre: GloasBeaconState<P>,
-) -> Result<HezeBeaconState<P>> {
-    anyhow::ensure!(
-        pre.eth1_deposit_index == pre.deposit_requests_start_index,
-        "legacy deposits must be fully processed before Heze"
-    );
+pub fn upgrade_to_heze<P: Preset>(config: &Config, pre: GloasBeaconState<P>) -> HezeBeaconState<P> {
     let epoch = accessors::get_current_epoch(&pre);
 
     let GloasBeaconState {
@@ -1051,7 +1052,7 @@ pub fn upgrade_to_heze<P: Preset>(
         inclusion_list_bits: BitVector::default(),
     };
 
-    Ok(HezeBeaconState {
+    HezeBeaconState {
         genesis_time,
         genesis_validators_root,
         slot,
@@ -1095,7 +1096,7 @@ pub fn upgrade_to_heze<P: Preset>(
         payload_expected_withdrawals,
         ptc_window,
         cache,
-    })
+    }
 }
 
 fn initialize_proposer_lookahead<P: Preset>(
@@ -1478,8 +1479,7 @@ mod spec_tests {
         let pre = case.ssz_default("pre");
         let expected_post = case.ssz_default("post");
 
-        let actual_post =
-            upgrade_to_heze::<P>(&P::default_config(), pre).expect("valid Heze upgrade");
+        let actual_post = upgrade_to_heze::<P>(&P::default_config(), pre);
 
         assert_eq!(actual_post, expected_post);
     }

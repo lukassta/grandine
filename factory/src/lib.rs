@@ -43,6 +43,9 @@ use types::{
         BeaconBlock as DenebBeaconBlock, BeaconBlockBody as DenebBeaconBlockBody,
         ExecutionPayload as DenebExecutionPayload,
     },
+    eip8321::containers::{
+        BeaconBlock as Eip8321BeaconBlock, BeaconBlockBody as Eip8321BeaconBlockBody,
+    },
     electra::containers::{
         Attestation as ElectraAttestation, BeaconBlock as ElectraBeaconBlock,
         BeaconBlockBody as ElectraBeaconBlockBody,
@@ -715,9 +718,6 @@ fn block_with_parent_payload<P: Preset>(
     });
 
     let without_state_root = match advanced_state.phase() {
-        Phase::Eip8321 => {
-            bail!("use Eip8321 block types and the FOCIL bid when constructing a Eip8321 block")
-        }
         Phase::Phase0 => BeaconBlock::from(Hc::new(Phase0BeaconBlock {
             slot,
             proposer_index,
@@ -849,6 +849,22 @@ fn block_with_parent_payload<P: Preset>(
                 attestations: gloas_attestations.try_into()?,
                 sync_aggregate,
                 ..HezeBeaconBlockBody::default()
+            },
+        }))
+        .with_signed_execution_payload_bid(signed_execution_payload_bid),
+        // These validators never register a RANDAO commitment, so they take the
+        // inherited BLS/SHA256 path and leave `hash_chain_reveal` zero.
+        Phase::Eip8321 => BeaconBlock::from(Hc::new(Eip8321BeaconBlock {
+            slot,
+            proposer_index,
+            parent_root,
+            state_root: H256::zero(),
+            body: Eip8321BeaconBlockBody {
+                randao_reveal,
+                graffiti,
+                attestations: gloas_attestations.try_into()?,
+                sync_aggregate,
+                ..Eip8321BeaconBlockBody::default()
             },
         }))
         .with_signed_execution_payload_bid(signed_execution_payload_bid),
