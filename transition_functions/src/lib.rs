@@ -29,8 +29,6 @@
 //                      somehow (even with `Ordering::SeqCst`). Using Rayon in
 //                      `altair::epoch_intermediates::epoch_deltas` does the same.
 
-// fs_err is used by the separate reference-vector integration target.
-
 pub mod combined;
 
 pub mod unphased {

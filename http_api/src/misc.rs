@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use block_producer::ValidatorBlindedBlock;
 use derive_more::From;
+use enum_iterator::Sequence as _;
 use serde::{
     Deserialize, Serialize,
     de::{DeserializeSeed, Error as _},
@@ -676,7 +677,7 @@ impl<P: Preset> SignedAPIBlock<P> {
 impl<P: Preset> SszSize for SignedAPIBlock<P> {
     // The const parameter should be `Self::VARIANT_COUNT`, but `Self` refers to a generic type.
     // Type parameters cannot be used in `const` contexts until `generic_const_exprs` is stable.
-    const SIZE: Size = Size::for_untagged_union([
+    const SIZE: Size = Size::for_untagged_union::<{ Phase::CARDINALITY }>([
         Phase0SignedBeaconBlock::<P>::SIZE,
         AltairSignedBeaconBlock::<P>::SIZE,
         BellatrixSignedBeaconBlock::<P>::SIZE,
