@@ -279,6 +279,7 @@ missing_panics_doc = { level = 'allow', priority = 1 }
 private_intra_doc_links = 'allow'
 
 [workspace.dependencies]
+blake3 = { version = "1", default-features = false, features = ["pure"] }
 aes = { version = '0.9', features = ['zeroize'] }
 alloy-rlp = '0.3'
 anyhow = { version = '1', features = ['backtrace'] }

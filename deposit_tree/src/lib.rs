@@ -289,7 +289,10 @@ mod tests {
             factory::min_genesis_state::<Minimal>(&config, &pubkey_cache)?;
 
         // Enough deposits to fill block #1 and leave one for block #2.
-        let block_0_count = state_0.eth1_deposit_index();
+        let block_0_count = state_0
+            .eth1_deposits()
+            .expect("fixture is a pre-Heze state")
+            .eth1_deposit_index();
         let block_1_count = block_0_count + <Minimal as Preset>::MaxDeposits::U64;
         let block_2_count = block_1_count + 1;
 
@@ -310,7 +313,11 @@ mod tests {
             .exactly_one()??;
 
         // Fake a successful `Eth1Data` vote for multiple new deposits.
-        *state_0.make_mut().eth1_data_mut() = Eth1Data {
+        *state_0
+            .make_mut()
+            .eth1_deposits_mut()
+            .expect("fixture is a pre-Heze state")
+            .eth1_data_mut() = Eth1Data {
             deposit_root: deposit_root_2,
             deposit_count: block_2_count,
             block_hash: ExecutionBlockHash::default(),
@@ -345,7 +352,13 @@ mod tests {
         let (_, state_2) =
             factory::block_with_deposits(&config, &pubkey_cache, state_1, 2, block_2_deposits)?;
 
-        assert_eq!(state_2.eth1_deposit_index(), block_2_count);
+        assert_eq!(
+            state_2
+                .eth1_deposits()
+                .expect("fixture is a pre-Heze state")
+                .eth1_deposit_index(),
+            block_2_count
+        );
 
         Ok(())
     }

@@ -60,7 +60,9 @@ mod tests {
         assert!(state.state_roots().is_default());
         assert!(state.historical_roots().is_default());
 
-        assert!(state.eth1_data_votes().is_default());
+        if let Some(legacy) = state.eth1_deposits() {
+            assert!(legacy.eth1_data_votes().is_default());
+        }
 
         assert!(state.slashings().is_default());
 

@@ -43,6 +43,9 @@ use types::{
         BeaconBlock as DenebBeaconBlock, BeaconBlockBody as DenebBeaconBlockBody,
         ExecutionPayload as DenebExecutionPayload,
     },
+    eip8321::containers::{
+        BeaconBlock as Eip8321BeaconBlock, BeaconBlockBody as Eip8321BeaconBlockBody,
+    },
     electra::containers::{
         Attestation as ElectraAttestation, BeaconBlock as ElectraBeaconBlock,
         BeaconBlockBody as ElectraBeaconBlockBody,
@@ -100,7 +103,10 @@ pub fn empty_block<P: Preset>(
     graffiti: H256,
 ) -> Result<BlockWithState<P>> {
     let advanced_state = advance_state(config, pubkey_cache, pre_state, slot)?;
-    let eth1_data = advanced_state.eth1_data();
+    let eth1_data = advanced_state
+        .eth1_deposits()
+        .map(types::traits::Eth1DepositState::eth1_data)
+        .unwrap_or_default();
     let attestations = core::iter::empty();
     let deposits = ContiguousList::default();
     let sync_aggregate = SyncAggregate::empty();
@@ -128,7 +134,10 @@ pub fn block_justifying_previous_epoch<P: Preset>(
 ) -> Result<BlockWithState<P>> {
     let block_slot = misc::compute_start_slot_at_epoch::<P>(epoch);
     let advanced_state = advance_state(config, pubkey_cache, pre_state, block_slot)?;
-    let eth1_data = advanced_state.eth1_data();
+    let eth1_data = advanced_state
+        .eth1_deposits()
+        .map(types::traits::Eth1DepositState::eth1_data)
+        .unwrap_or_default();
     let attestation_slots = misc::slots_in_epoch::<P>(epoch.saturating_sub(1))?;
     let attestations = full_block_attestations(config, &advanced_state, attestation_slots)?;
     let deposits = ContiguousList::default();
@@ -160,7 +169,10 @@ pub fn block_justifying_current_epoch<P: Preset>(
         misc::compute_start_slot_at_epoch::<P>(epoch.saturating_add(1)).saturating_sub(1);
 
     let advanced_state = advance_state(config, pubkey_cache, pre_state, block_slot)?;
-    let eth1_data = advanced_state.eth1_data();
+    let eth1_data = advanced_state
+        .eth1_deposits()
+        .map(types::traits::Eth1DepositState::eth1_data)
+        .unwrap_or_default();
     let attestation_slots = misc::compute_start_slot_at_epoch::<P>(epoch)..block_slot;
     let attestations = full_block_attestations(config, &advanced_state, attestation_slots)?;
     let deposits = ContiguousList::default();
@@ -187,7 +199,10 @@ pub fn block_with_deposits<P: Preset>(
     deposits: ContiguousList<Deposit, P::MaxDeposits>,
 ) -> Result<BlockWithState<P>> {
     let advanced_state = advance_state(config, pubkey_cache, pre_state, slot)?;
-    let eth1_data = advanced_state.eth1_data();
+    let eth1_data = advanced_state
+        .eth1_deposits()
+        .map(types::traits::Eth1DepositState::eth1_data)
+        .unwrap_or_default();
     let graffiti = H256::zero();
     let attestations = core::iter::empty();
     let sync_aggregate = SyncAggregate::empty();
@@ -242,7 +257,10 @@ pub fn block_with_payload<P: Preset>(
     execution_payload: ExecutionPayload<P>,
 ) -> Result<BlockWithState<P>> {
     let advanced_state = advance_state(config, pubkey_cache, pre_state, slot)?;
-    let eth1_data = advanced_state.eth1_data();
+    let eth1_data = advanced_state
+        .eth1_deposits()
+        .map(types::traits::Eth1DepositState::eth1_data)
+        .unwrap_or_default();
     let attestations = core::iter::empty();
     let deposits = ContiguousList::default();
     let sync_aggregate = SyncAggregate::empty();
@@ -272,7 +290,10 @@ pub fn empty_block_extending_parent_payload<P: Preset>(
     graffiti: H256,
 ) -> Result<BlockWithState<P>> {
     let advanced_state = advance_state(config, pubkey_cache, pre_state, slot)?;
-    let eth1_data = advanced_state.eth1_data();
+    let eth1_data = advanced_state
+        .eth1_deposits()
+        .map(types::traits::Eth1DepositState::eth1_data)
+        .unwrap_or_default();
     let attestations = core::iter::empty();
     let deposits = ContiguousList::default();
     let sync_aggregate = SyncAggregate::empty();
@@ -307,7 +328,7 @@ pub fn execution_payload_envelope<P: Preset>(
         .message()
         .body()
         .with_payload_bid()
-        .map(|body| body.payload_bid())
+        .map(types::traits::BlockBodyWithPayloadBid::payload_bid)
     else {
         bail!("block should be post-Gloas");
     };
@@ -362,7 +383,10 @@ pub fn full_blocks_up_to_epoch<P: Preset>(
     // This has to be a loop because it moves out of `pre_state`.
     for slot in start_slot..=end_slot {
         let advanced_state = advance_state(config, pubkey_cache, pre_state, slot)?;
-        let eth1_data = advanced_state.eth1_data();
+        let eth1_data = advanced_state
+            .eth1_deposits()
+            .map(types::traits::Eth1DepositState::eth1_data)
+            .unwrap_or_default();
         let graffiti = H256::zero();
         let attestations =
             full_block_attestations(config, &advanced_state, slot.saturating_sub(1)..slot)?;
@@ -507,7 +531,7 @@ fn signed_execution_payload_bid<P: Preset>(
             signature: SignatureBytes::empty(),
         }
         .into(),
-        Phase::Heze => HezeSignedExecutionPayloadBid {
+        Phase::Heze | Phase::Eip8321 => HezeSignedExecutionPayloadBid {
             message: HezeExecutionPayloadBid {
                 parent_block_hash,
                 parent_block_root,
@@ -559,6 +583,9 @@ pub fn execution_payload<P: Preset>(
         .try_into()?;
 
     let execution_payload = match config.phase_at_slot::<P>(slot) {
+        Phase::Eip8321 => {
+            bail!("Eip8321 payload construction requires the FOCIL execution-engine interface")
+        }
         Phase::Phase0 | Phase::Altair => bail!("slot should be post-Bellatrix"),
         Phase::Bellatrix => BellatrixExecutionPayload {
             parent_hash,
@@ -818,12 +845,26 @@ fn block_with_parent_payload<P: Preset>(
             state_root: H256::zero(),
             body: HezeBeaconBlockBody {
                 randao_reveal,
-                eth1_data,
                 graffiti,
                 attestations: gloas_attestations.try_into()?,
-                deposits: deposits.into(),
                 sync_aggregate,
                 ..HezeBeaconBlockBody::default()
+            },
+        }))
+        .with_signed_execution_payload_bid(signed_execution_payload_bid),
+        // These validators never register a RANDAO commitment, so they take the
+        // inherited BLS/SHA256 path and leave `hash_chain_reveal` zero.
+        Phase::Eip8321 => BeaconBlock::from(Hc::new(Eip8321BeaconBlock {
+            slot,
+            proposer_index,
+            parent_root,
+            state_root: H256::zero(),
+            body: Eip8321BeaconBlockBody {
+                randao_reveal,
+                graffiti,
+                attestations: gloas_attestations.try_into()?,
+                sync_aggregate,
+                ..Eip8321BeaconBlockBody::default()
             },
         }))
         .with_signed_execution_payload_bid(signed_execution_payload_bid),

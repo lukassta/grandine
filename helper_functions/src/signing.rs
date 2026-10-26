@@ -465,6 +465,7 @@ impl<P: Preset> SignForSingleFork<P> for VoluntaryExit {
             || current_fork_version == config.fulu_fork_version
             || current_fork_version == config.gloas_fork_version
             || current_fork_version == config.heze_fork_version
+            || current_fork_version == config.eip8321_fork_version
         {
             let fork_version = Some(config.capella_fork_version);
             let genesis_validators_root = Some(beacon_state.genesis_validators_root());
@@ -573,4 +574,19 @@ impl<P: Preset> SignForSingleFork<P> for ProposerPreferences {
 impl SignForAllForks for BuilderDepositMessage {
     const DOMAIN_TYPE: DomainType = DOMAIN_BUILDER_DEPOSIT;
     const SIGNATURE_KIND: SignatureKind = SignatureKind::BuilderDeposit;
+}
+impl<P: Preset> SignForSingleFork<P> for types::eip8321::containers::BeaconBlock<P> {
+    const DOMAIN_TYPE: DomainType = DOMAIN_BEACON_PROPOSER;
+    const SIGNATURE_KIND: SignatureKind = SignatureKind::Block;
+
+    fn epoch(&self) -> Epoch {
+        misc::compute_epoch_at_slot::<P>(self.slot)
+    }
+}
+
+impl<P: Preset> SignForAllForksWithGenesis<P>
+    for types::eip8321::containers::RandaoCommitmentRegistration
+{
+    const DOMAIN_TYPE: DomainType = types::eip8321::consts::DOMAIN_RANDAO_COMMITMENT_REGISTRATION;
+    const SIGNATURE_KIND: SignatureKind = SignatureKind::RandaoCommitmentRegistration;
 }

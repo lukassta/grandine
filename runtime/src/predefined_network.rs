@@ -321,7 +321,7 @@ async fn load_or_download_genesis_checkpoint<P: Preset>(
 #[cfg(test)]
 mod tests {
     use test_case::test_case;
-    use types::{preset::Mainnet, traits::BeaconState as _};
+    use types::preset::Mainnet;
 
     use super::*;
 
@@ -339,7 +339,9 @@ mod tests {
         let state = genesis_checkpoint_provider.checkpoint().value.state;
         let deposit_tree = predefined_network.genesis_deposit_tree();
 
-        assert_eq!(state.eth1_data().deposit_count, deposit_tree.deposit_count);
-        assert_eq!(state.eth1_deposit_index(), deposit_tree.deposit_count);
+        if let Some(legacy) = state.eth1_deposits() {
+            assert_eq!(legacy.eth1_data().deposit_count, deposit_tree.deposit_count);
+            assert_eq!(legacy.eth1_deposit_index(), deposit_tree.deposit_count);
+        }
     }
 }

@@ -12,7 +12,7 @@ use crate::{
         primitives::{BuilderIndex, Transaction},
     },
     phase0::{
-        containers::{Deposit, Eth1Data, ProposerSlashing, SignedVoluntaryExit},
+        containers::{ProposerSlashing, SignedVoluntaryExit},
         primitives::{ExecutionAddress, ExecutionBlockHash, Gwei, H256, Slot, ValidatorIndex},
     },
     preset::Preset,
@@ -92,15 +92,13 @@ pub struct BeaconBlock<P: Preset> {
 
 #[derive(Clone, PartialEq, Eq, Debug, Default, Deserialize, Serialize, Ssz)]
 #[serde(bound = "", deny_unknown_fields)]
-#[ssz(stable(active = [1; 13]))]
+#[ssz(stable(active = [1,0,1,1,1,1,0,1,1,1,1,1,1]))]
 pub struct BeaconBlockBody<P: Preset> {
     pub randao_reveal: SignatureBytes,
-    pub eth1_data: Eth1Data,
     pub graffiti: H256,
     pub proposer_slashings: ProgressiveList<ProposerSlashing>,
     pub attester_slashings: ProgressiveList<AttesterSlashing<P>>,
     pub attestations: ProgressiveList<Attestation<P>>,
-    pub deposits: ProgressiveList<Deposit>,
     pub voluntary_exits: ProgressiveList<SignedVoluntaryExit>,
     pub sync_aggregate: SyncAggregate<P>,
     pub bls_to_execution_changes: ProgressiveList<SignedBlsToExecutionChange>,

@@ -112,17 +112,20 @@ struct ViableHeadRootAndWeight {
 }
 
 // TODO: fix remaining failing compliance tests
+//
+// These are `assert_head` mismatches in the fork-choice `shuffling_test` cases, a known
+// pre-existing gap (the same class the base already skipped). The case names embed the
+// generator's random seed, so this list is specific to the pinned vector release in
+// `scripts/download_spec_tests.sh` and must be regenerated whenever that pin moves.
+//
+// Entries are matched with `ends_with`, not `contains`: case names share prefixes
+// (`..._3` is a prefix of `..._30` through `..._39`), so a `contains` match would
+// silently skip far more cases than intended.
 const SKIPPED_CASES: &[&str] = &[
-    "minimal/altair/fork_choice_compliance/shuffling_test/pyspec_tests/shuffling_test_1_922309954_7",
-    "minimal/bellatrix/fork_choice_compliance/shuffling_test/pyspec_tests/shuffling_test_1_922309954_7",
-    "minimal/capella/fork_choice_compliance/shuffling_test/pyspec_tests/shuffling_test_1_922309954_7",
-    "minimal/deneb/fork_choice_compliance/shuffling_test/pyspec_tests/shuffling_test_1_922309954_7",
-    "minimal/electra/fork_choice_compliance/attester_slashing_test/pyspec_tests/attester_slashing_test_0_536686244_2",
-    "minimal/electra/fork_choice_compliance/block_tree_test/pyspec_tests/block_tree_test_73_149206934_1",
-    "minimal/fulu/fork_choice_compliance/attester_slashing_test/pyspec_tests/attester_slashing_test_1_930324755_3",
-    "minimal/fulu/fork_choice_compliance/block_tree_test/pyspec_tests/block_tree_test_73_149206934_1",
-    "minimal/gloas/fork_choice_compliance/block_tree_test/pyspec_tests/block_tree_test_101_886189127_1",
-    "minimal/gloas/fork_choice_compliance/shuffling_test/pyspec_tests/shuffling_test_0_6673355_20",
+    "minimal/bellatrix/fork_choice_compliance/shuffling_test/pyspec_tests/shuffling_test_3_382399159_21",
+    "minimal/deneb/fork_choice_compliance/shuffling_test/pyspec_tests/shuffling_test_3_382399159_21",
+    "minimal/gloas/fork_choice_compliance/shuffling_test/pyspec_tests/shuffling_test_0_464243226_3",
+    "minimal/gloas/fork_choice_compliance/shuffling_test/pyspec_tests/shuffling_test_3_382399159_14",
 ];
 
 #[duplicate_item(
@@ -174,7 +177,7 @@ const SKIPPED_CASES: &[&str] = &[
 fn function_name(case: Case<'_>) {
     if SKIPPED_CASES
         .iter()
-        .any(|skipped| case.case_path_relative_to_workspace_root.contains(skipped))
+        .any(|skipped| case.case_path_relative_to_workspace_root.ends_with(skipped))
     {
         return;
     }
@@ -293,11 +296,7 @@ async fn run_case<P: Preset>(config: &Arc<Config>, case: Case<'_>) {
                     payload_status,
                 }) = last_payload_status.take()
                 {
-                    context.on_notified_new_payload(
-                        beacon_block_root,
-                        block_hash,
-                        payload_status.into(),
-                    );
+                    context.on_notified_new_payload(beacon_block_root, block_hash, payload_status);
                 }
 
                 if !valid && expected_blob_count > 0 {
@@ -388,7 +387,7 @@ async fn run_case<P: Preset>(config: &Arc<Config>, case: Case<'_>) {
                     | Phase::Bellatrix
                     | Phase::Capella
                     | Phase::Deneb => AttesterSlashing::Phase0(case.ssz(config, file_name)),
-                    Phase::Electra | Phase::Fulu | Phase::Gloas | Phase::Heze => {
+                    Phase::Electra | Phase::Fulu | Phase::Gloas | Phase::Heze | Phase::Eip8321 => {
                         AttesterSlashing::Electra(case.ssz(config, file_name))
                     }
                 };

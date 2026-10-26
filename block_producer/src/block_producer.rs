@@ -567,6 +567,12 @@ impl<P: Preset, W: Wait> BlockProducer<P, W> {
                 state,
                 exit,
             ),
+            BeaconState::Eip8321(state) => electra::validate_voluntary_exit(
+                &self.producer_context.chain_config,
+                &self.producer_context.pubkey_cache,
+                state,
+                exit,
+            ),
         };
 
         let outcome = match result {
@@ -961,7 +967,11 @@ impl<P: Preset, W: Wait> BlockBuildContext<P, W> {
     ) -> Result<BeaconBlock<P>> {
         info_with_peers!("block producer starting build beacon block without state root task");
 
-        let eth1_data = self.beacon_state.eth1_data();
+        let eth1_data = self
+            .beacon_state
+            .eth1_deposits()
+            .map(types::traits::Eth1DepositState::eth1_data)
+            .unwrap_or_default();
         let deposits = ContiguousList::default();
 
         // TODO(Grandine Team): Preparing slashings and voluntary exits independently may result
@@ -1000,6 +1010,9 @@ impl<P: Preset, W: Wait> BlockBuildContext<P, W> {
         let phase = self.beacon_state.phase();
 
         let result = match phase {
+            Phase::Eip8321 => {
+                anyhow::bail!("EIP-8321 proposal needs validator hash-chain secret management")
+            }
             Phase::Phase0 => BeaconBlock::from(Hc::new(Phase0BeaconBlock {
                 slot,
                 proposer_index,
@@ -1275,12 +1288,10 @@ impl<P: Preset, W: Wait> BlockBuildContext<P, W> {
                             state_root,
                             body: HezeBeaconBlockBody {
                                 randao_reveal,
-                                eth1_data,
                                 graffiti,
                                 proposer_slashings: proposer_slashings.into(),
                                 attester_slashings: self.prepare_attester_slashings_gloas().await,
                                 attestations: attestations.map(Into::into).into(),
-                                deposits: deposits.into(),
                                 voluntary_exits: voluntary_exits.into(),
                                 sync_aggregate,
                                 bls_to_execution_changes: bls_to_execution_changes.into(),
@@ -1851,6 +1862,12 @@ impl<P: Preset, W: Wait> BlockBuildContext<P, W> {
                     state,
                     *voluntary_exit,
                 ),
+                BeaconState::Eip8321(state) => electra::validate_voluntary_exit(
+                    &self.producer_context.chain_config,
+                    &self.producer_context.pubkey_cache,
+                    state,
+                    *voluntary_exit,
+                ),
             }
             .is_ok()
         });
@@ -2032,7 +2049,7 @@ impl<P: Preset, W: Wait> BlockBuildContext<P, W> {
                 signature: SignatureBytes::empty(),
             }
             .into(),
-            Phase::Heze => HezeSignedExecutionPayloadBid {
+            Phase::Heze | Phase::Eip8321 => HezeSignedExecutionPayloadBid {
                 message: HezeExecutionPayloadBid {
                     parent_block_hash,
                     parent_block_root: parent_root,
@@ -2088,6 +2105,11 @@ impl<P: Preset, W: Wait> BlockBuildContext<P, W> {
         let prev_randao = accessors::get_randao_mix(state, epoch);
 
         let payload_attributes = match state {
+            BeaconState::Eip8321(_) => {
+                anyhow::bail!(
+                    "EIP-8321 proposal generation is outside the consensus-vector implementation"
+                )
+            }
             BeaconState::Phase0(_) | BeaconState::Altair(_) => return Ok(None),
             BeaconState::Bellatrix(_) => PayloadAttributes::Bellatrix(PayloadAttributesV1 {
                 timestamp,

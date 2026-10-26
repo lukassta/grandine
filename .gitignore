@@ -18,6 +18,9 @@ book/deploy
 consensus-spec-tests/
 cryptography-spec-tests/
 ssz-spec-tests/
+test-vectors/
 
 # exception logs
 exception.log
+
+__pycache__/

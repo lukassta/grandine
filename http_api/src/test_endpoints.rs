@@ -45,7 +45,7 @@ pub async fn post_payload_status<P: Preset>(
         .expect("beacon block with payload should exist in th fork choice")
         .block_root;
 
-    controller.on_notified_new_payload(beacon_block_root, block_hash, payload_status.into());
+    controller.on_notified_new_payload(beacon_block_root, block_hash, payload_status);
 }
 
 /// `POST /test/take_messages`

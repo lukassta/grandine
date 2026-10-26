@@ -12,11 +12,10 @@ use helper_functions::{
         initialize_shuffled_indices,
     },
     electra::{
-        get_attesting_indices, is_fully_withdrawable_validator,
-        is_partially_withdrawable_validator, slash_validator,
+        get_attesting_indices, is_fully_withdrawable_validator, is_partially_withdrawable_validator,
     },
     error::SignatureKind,
-    gloas::get_indexed_attestation,
+    gloas::{get_indexed_attestation, slash_validator},
     misc::{
         builder_payment_index_for_current_epoch, builder_payment_index_for_previous_epoch,
         compute_epoch_at_slot, convert_builder_index_to_validator_index, get_max_effective_balance,
@@ -229,6 +228,7 @@ pub fn get_expected_withdrawals<P: Preset>(
         &mut withdrawals,
         withdrawal_limit,
         current_epoch,
+        processed_builder_withdrawals_count,
     )?;
 
     // Get validators sweep withdrawals
@@ -284,6 +284,7 @@ fn get_builders_sweep_withdrawals_count<P: Preset>(
     withdrawals: &mut Vec<Withdrawal>,
     withdrawal_limit: usize,
     current_epoch: Epoch,
+    processed_builder_withdrawals_count: usize,
 ) -> Result<u64> {
     let total_builders = state.builders().len_u64();
     let bound = total_builders.min(P::MAX_BUILDERS_PER_WITHDRAWALS_SWEEP);
@@ -296,12 +297,26 @@ fn get_builders_sweep_withdrawals_count<P: Preset>(
         }
 
         let builder = state.builders().get(builder_index)?;
-        if builder.withdrawable_epoch <= current_epoch && builder.balance > 0 {
+
+        // > The sweep withdraws only what is left after the builder's pending withdrawals
+        // > that were already selected earlier in this same payload. Their balance
+        // > deductions are applied after `get_expected_withdrawals` returns, so they are
+        // > not yet visible in `builder.balance`.
+        let already_withdrawn = state
+            .builder_pending_withdrawals()
+            .into_iter()
+            .take(processed_builder_withdrawals_count)
+            .filter(|pending| pending.builder_index == builder_index)
+            .try_fold(0, |sum: Gwei, pending| sum.try_add(pending.amount))?;
+
+        let remaining_balance = builder.balance.saturating_sub(already_withdrawn);
+
+        if builder.withdrawable_epoch <= current_epoch && remaining_balance > 0 {
             withdrawals.push(Withdrawal {
                 index: *withdrawal_index,
                 validator_index: convert_builder_index_to_validator_index(builder_index),
                 address: builder.execution_address,
-                amount: builder.balance,
+                amount: remaining_balance,
             });
 
             *withdrawal_index = withdrawal_index
@@ -768,8 +783,6 @@ pub fn apply_parent_execution_payload<P: Preset>(
         P::MaxBuilderExitRequestsPerPayload::USIZE,
     )?;
 
-    process_execution_requests(config, pubkey_cache, state, execution_requests)?;
-
     let parent_bid = state.latest_execution_payload_bid();
     let parent_slot = state.latest_block_header().slot;
     let parent_value = parent_bid.value();
@@ -778,6 +791,9 @@ pub fn apply_parent_execution_payload<P: Preset>(
     let parent_block_hash = parent_bid.block_hash();
     let parent_epoch = compute_epoch_at_slot::<P>(parent_slot);
 
+    // > The parent's payment is settled before the parent's execution requests are
+    // > processed, so that a builder exit request carried in the same payload sees the
+    // > resulting pending withdrawal and is rejected.
     if parent_epoch == get_current_epoch(state) {
         let payment_index = builder_payment_index_for_current_epoch::<P>(parent_slot)?;
         settle_builder_payment(state, payment_index)?;
@@ -793,6 +809,8 @@ pub fn apply_parent_execution_payload<P: Preset>(
                 builder_index: parent_builder_index,
             })?;
     }
+
+    process_execution_requests(config, pubkey_cache, state, execution_requests)?;
 
     let slot: usize = parent_slot.try_into()?;
 
@@ -899,6 +917,7 @@ pub fn process_operations<P: Preset, V: Verifier, B>(
 ) -> Result<()>
 where
     B: BlockBodyWithGloasAttestations<P>
+        + types::traits::BlockBodyWithEth1Deposits<P>
         + BlockBodyWithGloasAttesterSlashings<P>
         + BlockBodyWithBlsToExecutionChanges<P>
         + BlockBodyWithPayloadAttestations<P>,
@@ -957,7 +976,10 @@ where
     }
 
     for attester_slashing in body.attester_slashings() {
-        electra::process_attester_slashing(
+        // Use the post-Gloas wrapper, not `electra::`, so that slashing a proposer also
+        // cancels its pending builder payments. A proposer must not be able to keep its
+        // payment by slashing itself in the block that carries the bid.
+        process_attester_slashing(
             config,
             pubkey_cache,
             state,
@@ -1319,6 +1341,36 @@ pub fn process_proposer_slashing<P: Preset>(
     )
 }
 
+pub fn process_attester_slashing<P: Preset>(
+    config: &Config,
+    pubkey_cache: &PubkeyCache,
+    state: &mut impl PostGloasBeaconState<P>,
+    attester_slashing: &impl types::traits::AttesterSlashing<P>,
+    verifier: impl Verifier,
+    mut slot_report: impl SlotReport,
+) -> Result<()> {
+    let slashable_indices = unphased::validate_attester_slashing_with_verifier(
+        config,
+        pubkey_cache,
+        state,
+        attester_slashing,
+        verifier,
+    )?;
+
+    for validator_index in slashable_indices {
+        slash_validator(
+            config,
+            state,
+            validator_index,
+            None,
+            SlashingKind::Attester,
+            &mut slot_report,
+        )?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod spec_tests {
     use core::fmt::Debug;
@@ -1420,7 +1472,8 @@ mod spec_tests {
     processing_tests! {
         process_attester_slashing,
         |config, pubkey_cache, state, attester_slashing: AttesterSlashing<P>, _| {
-            electra::process_attester_slashing(
+            // Must match the function `process_operations` actually uses.
+            process_attester_slashing(
                 config,
                 pubkey_cache,
                 state,
