@@ -6420,16 +6420,72 @@ impl<P: Preset, S: Storage<P>> Store<P, S> {
             //   and parent does not have more votes for its empty payload state;
             // - it's a child of parent with "pending" payload
             //   (meaning parent does not have payload presence at all, i.e. pre-Gloas block).
-            match parent_payload_presence {
-                PayloadPresence::Empty
-                    if parent_payload_verified && parent_empty <= parent_full =>
-                {
-                    true
-                }
-                PayloadPresence::Full if parent_empty > parent_full => true,
-                _ => false,
+            let sibling_variant_wins = match parent_payload_presence {
+                PayloadPresence::Empty => parent_payload_verified && parent_empty <= parent_full,
+                PayloadPresence::Full => parent_empty > parent_full,
+                PayloadPresence::Pending => false,
+            };
+
+            if !sibling_variant_wins {
+                return false;
             }
+
+            // Losing to the sibling variant only takes this child out of contention while that
+            // variant is in the filtered node tree. `filter_node_tree` evaluates viability at
+            // childless nodes only, so a childless variant of an unviable block is pruned and
+            // this child keeps its chance at being the head. See `consensus-specs` issue #5496.
+            let sibling_payload_presence = if parent_payload_presence.is_full() {
+                PayloadPresence::Empty
+            } else {
+                PayloadPresence::Full
+            };
+
+            self.variant_has_children(parent_balances.block_root, sibling_payload_presence)
+                || self.is_block_root_viable(parent_balances.block_root)
         }
+    }
+
+    /// Does any block extend `block_root` with the given payload presence?
+    ///
+    /// Mirrors [`get_node_children`] for a node whose payload status is decided: a block is a child
+    /// of the `(block_root, payload_presence)` node only if its own `parent_payload_presence`
+    /// matches.
+    ///
+    /// [`get_node_children`]: https://github.com/ethereum/consensus-specs/blob/v1.6.1/specs/gloas/fork-choice.md#new-get_node_children
+    fn variant_has_children(&self, block_root: H256, payload_presence: PayloadPresence) -> bool {
+        let Some(location) = self.unfinalized_locations.get(&block_root).copied() else {
+            return false;
+        };
+
+        let segment = &self.unfinalized[&location.segment_id];
+
+        // The next block in the same segment, if the segment continues past `block_root`.
+        if location.position < segment.last_position()
+            && let Ok(next_position) = location.position.next()
+            && segment[next_position].parent_payload_presence() == payload_presence
+        {
+            return true;
+        }
+
+        // Children that branch off into segments of their own.
+        self.unfinalized.values().any(|other| {
+            self.parent_location(other) == Some(location)
+                && other.first_block().parent_payload_presence() == payload_presence
+        })
+    }
+
+    /// Viability of a node rooted at `block_root`, as [`filter_block_tree`] evaluates it for a
+    /// childless node (`filter_node_tree` in the versions that model payload presence as part of
+    /// the node). Viability depends only on the root, not on the payload presence.
+    ///
+    /// [`filter_block_tree`]: https://github.com/ethereum/consensus-specs/blob/v1.6.1/specs/phase0/fork-choice.md#filter_block_tree
+    fn is_block_root_viable(&self, block_root: H256) -> bool {
+        // The last finalized block is never pruned from the node tree.
+        self.unfinalized_locations
+            .get(&block_root)
+            .is_none_or(|location| {
+                self.is_block_viable(&self.unfinalized[&location.segment_id][location.position])
+            })
     }
 
     fn payload_weights(&self, parent: BlockBalances, proposer_boost: Gwei) -> (Gwei, Gwei) {
