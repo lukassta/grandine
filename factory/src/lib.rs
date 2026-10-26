@@ -105,7 +105,7 @@ pub fn empty_block<P: Preset>(
     let advanced_state = advance_state(config, pubkey_cache, pre_state, slot)?;
     let eth1_data = advanced_state
         .eth1_deposits()
-        .map(|state| state.eth1_data())
+        .map(types::traits::Eth1DepositState::eth1_data)
         .unwrap_or_default();
     let attestations = core::iter::empty();
     let deposits = ContiguousList::default();
@@ -136,7 +136,7 @@ pub fn block_justifying_previous_epoch<P: Preset>(
     let advanced_state = advance_state(config, pubkey_cache, pre_state, block_slot)?;
     let eth1_data = advanced_state
         .eth1_deposits()
-        .map(|state| state.eth1_data())
+        .map(types::traits::Eth1DepositState::eth1_data)
         .unwrap_or_default();
     let attestation_slots = misc::slots_in_epoch::<P>(epoch.saturating_sub(1))?;
     let attestations = full_block_attestations(config, &advanced_state, attestation_slots)?;
@@ -171,7 +171,7 @@ pub fn block_justifying_current_epoch<P: Preset>(
     let advanced_state = advance_state(config, pubkey_cache, pre_state, block_slot)?;
     let eth1_data = advanced_state
         .eth1_deposits()
-        .map(|state| state.eth1_data())
+        .map(types::traits::Eth1DepositState::eth1_data)
         .unwrap_or_default();
     let attestation_slots = misc::compute_start_slot_at_epoch::<P>(epoch)..block_slot;
     let attestations = full_block_attestations(config, &advanced_state, attestation_slots)?;
@@ -201,7 +201,7 @@ pub fn block_with_deposits<P: Preset>(
     let advanced_state = advance_state(config, pubkey_cache, pre_state, slot)?;
     let eth1_data = advanced_state
         .eth1_deposits()
-        .map(|state| state.eth1_data())
+        .map(types::traits::Eth1DepositState::eth1_data)
         .unwrap_or_default();
     let graffiti = H256::zero();
     let attestations = core::iter::empty();
@@ -259,7 +259,7 @@ pub fn block_with_payload<P: Preset>(
     let advanced_state = advance_state(config, pubkey_cache, pre_state, slot)?;
     let eth1_data = advanced_state
         .eth1_deposits()
-        .map(|state| state.eth1_data())
+        .map(types::traits::Eth1DepositState::eth1_data)
         .unwrap_or_default();
     let attestations = core::iter::empty();
     let deposits = ContiguousList::default();
@@ -292,7 +292,7 @@ pub fn empty_block_extending_parent_payload<P: Preset>(
     let advanced_state = advance_state(config, pubkey_cache, pre_state, slot)?;
     let eth1_data = advanced_state
         .eth1_deposits()
-        .map(|state| state.eth1_data())
+        .map(types::traits::Eth1DepositState::eth1_data)
         .unwrap_or_default();
     let attestations = core::iter::empty();
     let deposits = ContiguousList::default();
@@ -328,7 +328,7 @@ pub fn execution_payload_envelope<P: Preset>(
         .message()
         .body()
         .with_payload_bid()
-        .map(|body| body.payload_bid())
+        .map(types::traits::BlockBodyWithPayloadBid::payload_bid)
     else {
         bail!("block should be post-Gloas");
     };
@@ -385,7 +385,7 @@ pub fn full_blocks_up_to_epoch<P: Preset>(
         let advanced_state = advance_state(config, pubkey_cache, pre_state, slot)?;
         let eth1_data = advanced_state
             .eth1_deposits()
-            .map(|state| state.eth1_data())
+            .map(types::traits::Eth1DepositState::eth1_data)
             .unwrap_or_default();
         let graffiti = H256::zero();
         let attestations =

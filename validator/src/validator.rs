@@ -1991,6 +1991,7 @@ impl<P: Preset, W: Wait + Sync> Validator<P, W> {
     }
 
     /// <https://github.com/ethereum/consensus-specs/blob/v1.7.0-beta.1/specs/heze/validator.md#inclusion-list-proposal>
+    #[expect(clippy::too_many_lines)]
     #[instrument(level = "debug", skip_all, fields(slot = slot_head.slot()))]
     async fn produce_and_publish_inclusion_lists(&self, slot_head: &SlotHead<P>) {
         if slot_head.beacon_state.phase() < Phase::Heze {

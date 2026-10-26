@@ -514,8 +514,7 @@ impl Eth1Api {
             Phase::Deneb => payload_id.map(PayloadId::Deneb),
             Phase::Electra => payload_id.map(PayloadId::Electra),
             Phase::Fulu => payload_id.map(PayloadId::Fulu),
-            Phase::Gloas => payload_id.map(PayloadId::Gloas),
-            Phase::Heze | Phase::Eip8321 => payload_id.map(PayloadId::Gloas),
+            Phase::Gloas | Phase::Heze | Phase::Eip8321 => payload_id.map(PayloadId::Gloas),
             _ => {
                 // This match arm will silently match any new phases.
                 // Cause a compilation error if a new phase is added.

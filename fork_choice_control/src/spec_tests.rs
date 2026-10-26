@@ -350,11 +350,7 @@ async fn run_case<P: Preset>(config: &Arc<Config>, case: Case<'_>) {
                     payload_status,
                 }) = last_payload_status.take()
                 {
-                    context.on_notified_new_payload(
-                        beacon_block_root,
-                        block_hash,
-                        payload_status.into(),
-                    );
+                    context.on_notified_new_payload(beacon_block_root, block_hash, payload_status);
                 }
 
                 if !valid && expected_blob_count > 0 {

@@ -970,7 +970,7 @@ impl<P: Preset, W: Wait> BlockBuildContext<P, W> {
         let eth1_data = self
             .beacon_state
             .eth1_deposits()
-            .map(|state| state.eth1_data())
+            .map(types::traits::Eth1DepositState::eth1_data)
             .unwrap_or_default();
         let deposits = ContiguousList::default();
 
