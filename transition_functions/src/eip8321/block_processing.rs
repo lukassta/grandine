@@ -666,3 +666,505 @@ pub fn process_randao_commitment_registration<P: Preset>(
         })?;
     Ok(())
 }
+
+#[cfg(test)]
+mod spec_tests {
+    use core::fmt::Debug;
+
+    use helper_functions::{slot_report::NullSlotReport, verifier::NullVerifier};
+    use spec_test_utils::{BlsSetting, Case, Meta};
+    use ssz::SszReadDefault;
+    use test_generator::test_resources;
+    use types::{
+        gloas::containers::{Attestation, AttesterSlashing},
+        nonstandard::Phase,
+        preset::{Mainnet, Minimal},
+    };
+
+    use super::*;
+    use crate::{
+        capella, electra, fulu,
+        gloas::{
+            apply_attestation,
+            execution_payload_processing::{
+                process_builder_deposit_request, process_builder_exit_request,
+            },
+            process_payload_attestation, process_proposer_slashing,
+            validate_attestation_with_verifier,
+        },
+    };
+
+    macro_rules! processing_tests {
+        (
+            $module_name: ident,
+            $processing_function: expr,
+            $operation_name: literal,
+            $mainnet_glob: literal,
+            $minimal_glob: literal,
+        ) => {
+            mod $module_name {
+                use super::*;
+
+                #[test_resources($mainnet_glob)]
+                fn mainnet(case: Case) {
+                    run_processing_case_specialized::<Mainnet>(case);
+                }
+
+                #[test_resources($minimal_glob)]
+                fn minimal(case: Case) {
+                    run_processing_case_specialized::<Minimal>(case);
+                }
+
+                fn run_processing_case_specialized<P: Preset>(case: Case) {
+                    run_processing_case::<P, _>(case, $operation_name, $processing_function);
+                }
+            }
+        };
+    }
+
+    macro_rules! validation_tests {
+        (
+            $module_name: ident,
+            $validation_function: expr,
+            $operation_name: literal,
+            $mainnet_glob: literal,
+            $minimal_glob: literal,
+        ) => {
+            mod $module_name {
+                use super::*;
+
+                #[test_resources($mainnet_glob)]
+                fn mainnet(case: Case) {
+                    run_validation_case_specialized::<Mainnet>(case);
+                }
+
+                #[test_resources($minimal_glob)]
+                fn minimal(case: Case) {
+                    run_validation_case_specialized::<Minimal>(case);
+                }
+
+                fn run_validation_case_specialized<P: Preset>(case: Case) {
+                    run_validation_case::<P, _, _>(case, $operation_name, $validation_function);
+                }
+            }
+        };
+    }
+
+    processing_tests! {
+        process_deposit_request,
+        |_, _, state, deposit_request, _| fulu::process_deposit_request(state, deposit_request),
+        "deposit_request",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/deposit_request/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/deposit_request/*/*",
+    }
+
+    processing_tests! {
+        process_withdrawal_request,
+        |config, _, state, withdrawal_request, _| electra::process_withdrawal_request(config, state, withdrawal_request),
+        "withdrawal_request",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/withdrawal_request/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/withdrawal_request/*/*",
+    }
+
+    processing_tests! {
+        process_consolidation_request,
+        |config, _, state, consolidation_request, _| electra::process_consolidation_request(config, state, consolidation_request),
+        "consolidation_request",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/consolidation_request/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/consolidation_request/*/*",
+    }
+
+    processing_tests! {
+        process_builder_deposit_request,
+        |config, pubkey_cache, state, builder_deposit_request, _| process_builder_deposit_request(config, pubkey_cache, state, builder_deposit_request),
+        "builder_deposit_request",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/builder_deposit_request/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/builder_deposit_request/*/*",
+    }
+
+    processing_tests! {
+        process_builder_exit_request,
+        |config, _, state, builder_exit_request, _| process_builder_exit_request(config, state, builder_exit_request),
+        "builder_exit_request",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/builder_exit_request/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/builder_exit_request/*/*",
+    }
+
+    // Test files for `process_block_header` are named `block.*` and contain `BeaconBlock`s.
+    processing_tests! {
+        process_block_header,
+        |config, _, state, block: Hc<BeaconBlock<_>>, _| unphased::process_block_header(config, state, &block),
+        "block",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/block_header/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/block_header/*/*",
+    }
+
+    processing_tests! {
+        process_proposer_slashing,
+        |config, pubkey_cache, state, proposer_slashing, _| {
+            process_proposer_slashing(
+                config,
+                pubkey_cache,
+                state,
+                proposer_slashing,
+                SingleVerifier,
+                NullSlotReport,
+            )
+        },
+        "proposer_slashing",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/proposer_slashing/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/proposer_slashing/*/*",
+    }
+
+    processing_tests! {
+        process_attester_slashing,
+        // This is the Gloas function, imported at the top of the module. It is the one
+        // `process_operations` dispatches to, unlike the Heze tests, which call the Electra one.
+        |config, pubkey_cache, state, attester_slashing: AttesterSlashing<P>, _| {
+            process_attester_slashing(
+                config,
+                pubkey_cache,
+                state,
+                &attester_slashing,
+                SingleVerifier,
+                NullSlotReport,
+            )
+        },
+        "attester_slashing",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/attester_slashing/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/attester_slashing/*/*",
+    }
+
+    processing_tests! {
+        process_attestation,
+        |config, pubkey_cache, state, attestation, meta| {
+            process_attestation(
+                config,
+                pubkey_cache,
+                state,
+                &attestation,
+                meta,
+            )
+        },
+        "attestation",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/attestation/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/attestation/*/*",
+    }
+
+    processing_tests! {
+        process_bls_to_execution_change,
+        |config, pubkey_cache, state, bls_to_execution_change, _| {
+            capella::process_bls_to_execution_change(
+                config,
+                pubkey_cache,
+                state,
+                bls_to_execution_change,
+                SingleVerifier,
+            )
+        },
+        "address_change",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/bls_to_execution_change/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/bls_to_execution_change/*/*",
+    }
+
+    processing_tests! {
+        process_voluntary_exit,
+        |config, pubkey_cache, state, voluntary_exit, _| {
+            electra::process_voluntary_exit(
+                config,
+                pubkey_cache,
+                state,
+                voluntary_exit,
+                SingleVerifier,
+            )
+        },
+        "voluntary_exit",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/voluntary_exit/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/voluntary_exit/*/*",
+    }
+
+    processing_tests! {
+        process_voluntary_exit_churn,
+        |config, pubkey_cache, state, voluntary_exit, _| {
+            electra::process_voluntary_exit(
+                config,
+                pubkey_cache,
+                state,
+                voluntary_exit,
+                SingleVerifier,
+            )
+        },
+        "voluntary_exit",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/voluntary_exit_churn/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/voluntary_exit_churn/*/*",
+    }
+
+    processing_tests! {
+        process_sync_aggregate,
+        |config, pubkey_cache, state, sync_aggregate, _| {
+            altair::process_sync_aggregate(
+                config,
+                pubkey_cache,
+                state,
+                sync_aggregate,
+                SingleVerifier,
+                NullSlotReport,
+            )
+        },
+        "sync_aggregate",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/sync_aggregate/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/sync_aggregate/*/*",
+    }
+
+    processing_tests! {
+        process_execution_payload_bid,
+        |config, pubkey_cache, state, execution_payload_bid, _| {
+            process_execution_payload_bid(
+                config,
+                pubkey_cache,
+                state,
+                &execution_payload_bid,
+            )
+        },
+        "execution_payload_bid",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/execution_payload_bid/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/execution_payload_bid/*/*",
+    }
+
+    processing_tests! {
+        process_payload_attestation,
+        |config, pubkey_cache, state, payload_attestation, _| {
+            process_payload_attestation(
+                config,
+                pubkey_cache,
+                state,
+                &payload_attestation,
+                SingleVerifier,
+            )
+        },
+        "payload_attestation",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/payload_attestation/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/payload_attestation/*/*",
+    }
+
+    processing_tests! {
+        process_parent_execution_payload,
+        |config, pubkey_cache, state, block, _| process_parent_execution_payload(config, pubkey_cache, state, &block),
+        "block",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/parent_execution_payload/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/parent_execution_payload/*/*",
+    }
+
+    // > [New in EIP-8321]
+    processing_tests! {
+        process_randao_commitment_registration,
+        |config, pubkey_cache, state, registration, _| {
+            process_randao_commitment_registration(
+                config,
+                pubkey_cache,
+                state,
+                &registration,
+                SingleVerifier,
+            )
+        },
+        "randao_commitment_registration",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/randao_commitment_registration/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/randao_commitment_registration/*/*",
+    }
+
+    validation_tests! {
+        validate_proposer_slashing,
+        |config, pubkey_cache, state, proposer_slashing| {
+            unphased::validate_proposer_slashing(config, pubkey_cache, state, proposer_slashing)
+        },
+        "proposer_slashing",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/proposer_slashing/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/proposer_slashing/*/*",
+    }
+
+    validation_tests! {
+        validate_attester_slashing,
+        |config, pubkey_cache, state, attester_slashing: AttesterSlashing<P>| {
+            unphased::validate_attester_slashing(config, pubkey_cache, state, &attester_slashing)
+        },
+        "attester_slashing",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/attester_slashing/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/attester_slashing/*/*",
+    }
+
+    validation_tests! {
+        validate_voluntary_exit,
+        |config, pubkey_cache, state, voluntary_exit| {
+            electra::validate_voluntary_exit_with_verifier(config, pubkey_cache, state, voluntary_exit, SingleVerifier)
+        },
+        "voluntary_exit",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/voluntary_exit/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/voluntary_exit/*/*",
+    }
+
+    validation_tests! {
+        validate_bls_to_execution_change,
+        |config, pubkey_cache, state, bls_to_execution_change| {
+            capella::validate_bls_to_execution_change(config, pubkey_cache, state, bls_to_execution_change)
+        },
+        "address_change",
+        "consensus-spec-tests/tests/mainnet/eip8321/operations/bls_to_execution_change/*/*",
+        "consensus-spec-tests/tests/minimal/eip8321/operations/bls_to_execution_change/*/*",
+    }
+
+    // > [New in EIP-8321]
+    #[test_resources("consensus-spec-tests/tests/mainnet/eip8321/operations/randao/*/*")]
+    fn mainnet_randao(case: Case) {
+        run_randao_case::<Mainnet>(case);
+    }
+
+    #[test_resources("consensus-spec-tests/tests/minimal/eip8321/operations/randao/*/*")]
+    fn minimal_randao(case: Case) {
+        run_randao_case::<Minimal>(case);
+    }
+
+    #[test_resources("consensus-spec-tests/tests/mainnet/eip8321/operations/withdrawals/*/*")]
+    fn mainnet_withdrawals(case: Case) {
+        run_withdrawals_case::<Mainnet>(case);
+    }
+
+    #[test_resources("consensus-spec-tests/tests/minimal/eip8321/operations/withdrawals/*/*")]
+    fn minimal_withdrawals(case: Case) {
+        run_withdrawals_case::<Minimal>(case);
+    }
+
+    fn config<P: Preset>(state: &Eip8321BeaconState<P>) -> Config {
+        P::default_config().upgrade_once(Phase::Eip8321, state.fork.epoch)
+    }
+
+    fn run_processing_case<P: Preset, O: SszReadDefault>(
+        case: Case,
+        operation_name: &str,
+        processing_function: impl FnOnce(
+            &Config,
+            &PubkeyCache,
+            &mut Eip8321BeaconState<P>,
+            O,
+            &Meta,
+        ) -> Result<()>,
+    ) {
+        let pubkey_cache = PubkeyCache::default();
+        let mut state = case.ssz_default("pre");
+        let operation = case.ssz_default(operation_name);
+        let post_option = case.try_ssz_default("post");
+        let meta = case.meta();
+        let config = config(&state);
+
+        let result = processing_function(&config, &pubkey_cache, &mut state, operation, &meta)
+            .map(|()| state);
+
+        if let Some(expected_post) = post_option {
+            let actual_post = result.expect("operation processing should succeed");
+            assert_eq!(actual_post, expected_post);
+        } else {
+            result.expect_err("operation processing should fail");
+        }
+    }
+
+    fn run_validation_case<P: Preset, O: SszReadDefault, R: Debug>(
+        case: Case,
+        operation_name: &str,
+        validation_function: impl FnOnce(
+            &Config,
+            &PubkeyCache,
+            &mut Eip8321BeaconState<P>,
+            O,
+        ) -> Result<R>,
+    ) {
+        let pubkey_cache = PubkeyCache::default();
+        let mut state = case.ssz_default("pre");
+        let operation = case.ssz_default(operation_name);
+        let post_exists = case.exists("post");
+        let config = config(&state);
+
+        let result = validation_function(&config, &pubkey_cache, &mut state, operation);
+
+        if post_exists {
+            result.expect("validation should succeed");
+        } else {
+            result.expect_err("validation should fail");
+        }
+    }
+
+    // Test files for `process_randao` are named `block.*` and contain `BeaconBlock`s,
+    // of which only the body is processed.
+    fn run_randao_case<P: Preset>(case: Case) {
+        // `randao/hash_chain_reveal_consumes_one_link_per_block` ships no SSZ files because it
+        // spans multiple blocks and is therefore not a single-operation transition. Skip it.
+        let Some(mut state) = case.try_ssz_default::<Eip8321BeaconState<P>>("pre") else {
+            return;
+        };
+        let block = case.ssz_default::<Hc<BeaconBlock<P>>>("block");
+        let post_option = case.try_ssz_default("post");
+        let pubkey_cache = PubkeyCache::default();
+        let config = config(&state);
+
+        let result = process_randao(
+            &config,
+            &pubkey_cache,
+            &mut state,
+            &block.body,
+            SingleVerifier,
+        )
+        .map(|()| state);
+
+        if let Some(expected_post) = post_option {
+            let actual_post = result.expect("RANDAO processing should succeed");
+            assert_eq!(actual_post, expected_post);
+        } else {
+            result.expect_err("RANDAO processing should fail");
+        }
+    }
+
+    fn run_withdrawals_case<P: Preset>(case: Case) {
+        let mut state = case.ssz_default::<Eip8321BeaconState<P>>("pre");
+        let post_option = case.try_ssz_default("post");
+
+        let result = process_withdrawals(&mut state).map(|()| state);
+
+        if let Some(expected_post) = post_option {
+            let actual_post = result.expect("withdrawals processing should succeed");
+            assert_eq!(actual_post, expected_post);
+        } else {
+            result.expect_err("withdrawals processing should fail");
+        }
+    }
+
+    fn process_attestation<P: Preset>(
+        config: &Config,
+        pubkey_cache: &PubkeyCache,
+        state: &mut Eip8321BeaconState<P>,
+        attestation: &Attestation<P>,
+        meta: &Meta,
+    ) -> Result<()> {
+        match meta.bls_setting {
+            BlsSetting::Optional | BlsSetting::Required => validate_attestation_with_verifier(
+                config,
+                pubkey_cache,
+                state,
+                attestation,
+                SingleVerifier,
+            )?,
+            BlsSetting::Ignored => validate_attestation_with_verifier(
+                config,
+                pubkey_cache,
+                state,
+                attestation,
+                NullVerifier,
+            )?,
+        }
+
+        // The bid is not processed here, so the bid in the state
+        // is still the parent block's bid and its slot is the parent block's slot.
+        let parent_slot = meta
+            .parent_slot
+            .unwrap_or(state.latest_execution_payload_bid.slot);
+
+        apply_attestation(config, state, attestation, parent_slot, NullSlotReport)
+    }
+}
