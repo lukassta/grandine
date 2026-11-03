@@ -20,7 +20,7 @@ use crate::{
     gloas::containers::DataColumnSidecar as GloasDataColumnSidecar,
     nonstandard::{CustodyMode, Phase, Toption},
     phase0::{
-        consts::{AttestationSubnetCount, FAR_FUTURE_EPOCH, GENESIS_EPOCH},
+        consts::{AttestationSubnetCount, FAR_FUTURE_EPOCH, GENESIS_EPOCH, GENESIS_SLOT},
         primitives::{
             ChainId, DomainType, Epoch, ExecutionAddress, ExecutionBlockHash, Gwei, H32, H160,
             H256, NetworkId, Slot, UnixSeconds, Version,
@@ -133,6 +133,18 @@ pub struct Config {
 
     #[serde(with = "serde_utils::string_or_native")]
     pub inclusion_list_due_bps: u64,
+
+    // Heze
+    //
+    // EIP-8198 shortens the slot duration at the Heze fork, so the slot duration is no
+    // longer constant over the life of a chain. Upstream `configs/*.yaml` spell this
+    // `SLOT_DURATION_MS_EIP8198`, while `heze-devnet` configurations key it to the fork
+    // name as `SLOT_DURATION_MS_HEZE`. Accept both spellings.
+    #[serde(
+        alias = "SLOT_DURATION_MS_EIP8198",
+        with = "As::<DurationMilliSeconds<String>>"
+    )]
+    pub slot_duration_ms_heze: Duration,
 
     // Validator cycle
     #[serde(with = "serde_utils::string_or_native")]
@@ -322,6 +334,9 @@ impl Default for Config {
 
             // Heze
             inclusion_list_due_bps: 6667,
+            // Same as `slot_duration_ms`: EIP-8198 is only in effect for configurations
+            // that explicitly shorten the slot at Heze.
+            slot_duration_ms_heze: Duration::from_secs(12),
 
             // Validator cycle
             churn_limit_quotient: nonzero!(1_u64 << 16),
@@ -496,6 +511,9 @@ impl Config {
 
             // Gloas
             min_builder_withdrawability_delay: 2,
+
+            // Heze
+            slot_duration_ms_heze: Duration::from_secs(6),
 
             // Validator cycle
             churn_limit_quotient: nonzero!(32_u64),
@@ -1246,12 +1264,181 @@ impl Config {
     #[must_use]
     pub fn max_gossip_future_slots(&self) -> Slot {
         let disparity = self.maximum_gossip_clock_disparity.as_millis();
-        let slot_duration = self.slot_duration_ms.as_millis();
+        // Use the shortest slot duration the chain can have, so the bound stays valid on
+        // both sides of the Heze boundary.
+        let slot_duration = self
+            .slot_duration_ms
+            .min(self.slot_duration_ms_heze)
+            .as_millis();
 
         disparity
             .div_ceil(slot_duration)
             .try_into()
             .expect("max gossip future slots should fit in u64")
+    }
+
+    /// Slot duration change points as `(first_slot, duration)`, ordered by slot.
+    ///
+    /// Each segment runs until the next segment's `first_slot`. Mirrors
+    /// `get_slot_durations` from [EIP-8198].
+    ///
+    /// [EIP-8198]: https://github.com/ethereum/consensus-specs/blob/v1.7.0-beta.4/specs/_features/eip8198/beacon-chain.md
+    fn slot_duration_segments<P: Preset>(&self) -> [(Slot, Duration); 2] {
+        let heze_slot = match self.fork_slot::<P>(Phase::Heze) {
+            Toption::Some(slot) => slot,
+            Toption::None => Slot::MAX,
+        };
+
+        [
+            (GENESIS_SLOT, self.slot_duration_ms),
+            (heze_slot, self.slot_duration_ms_heze),
+        ]
+    }
+
+    /// Duration of the slot `slot`.
+    ///
+    /// EIP-8198 shortens the slot duration at the Heze fork, so this is not constant.
+    #[must_use]
+    pub fn slot_duration_at_slot<P: Preset>(&self, slot: Slot) -> Duration {
+        if self.phase_at_slot::<P>(slot) >= Phase::Heze {
+            self.slot_duration_ms_heze
+        } else {
+            self.slot_duration_ms
+        }
+    }
+
+    /// Slot duration in effect during `epoch`.
+    ///
+    /// Mirrors `get_slot_duration_ms` from [EIP-8198].
+    ///
+    /// [EIP-8198]: https://github.com/ethereum/consensus-specs/blob/v1.7.0-beta.4/specs/_features/eip8198/beacon-chain.md
+    #[must_use]
+    pub fn slot_duration_ms_at_epoch(&self, epoch: Epoch) -> u64 {
+        let duration = if epoch >= self.heze_fork_epoch {
+            self.slot_duration_ms_heze
+        } else {
+            self.slot_duration_ms
+        };
+
+        u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+    }
+
+    /// Reprice `value` from the genesis slot duration to the one in effect during `epoch`.
+    ///
+    /// EIP-8198 makes the slot duration fork-specific and reprices the parameters that are
+    /// really per-wall-clock-time rates — issuance and churn — by
+    /// `r = slot_duration_ms(epoch) / slot_duration_ms(GENESIS_EPOCH)`, so that their
+    /// wall-clock behavior is unchanged. The ratio is applied inline, multiplying before
+    /// dividing, because the spec does not pre-round it.
+    ///
+    /// This is the identity whenever the slot duration never changes, which is every
+    /// configuration that does not shorten the slot at Heze.
+    #[must_use]
+    pub fn scale_by_slot_duration_ratio(&self, value: u64, epoch: Epoch) -> u64 {
+        let current = self.slot_duration_ms_at_epoch(epoch);
+        let genesis = self.slot_duration_ms_at_epoch(GENESIS_EPOCH);
+
+        if current == genesis {
+            return value;
+        }
+
+        value
+            .saturating_mul(current)
+            .checked_div(genesis)
+            .unwrap_or(value)
+    }
+
+    /// Scale an inactivity penalty denominator so the penalty itself scales by `r**2`.
+    ///
+    /// [EIP-8198] scales the inactivity penalty by the *square* of the slot duration ratio,
+    /// so that the cumulative leak over a fixed wall-clock duration is unchanged. The
+    /// penalty is a quotient, so its denominator takes the inverse square.
+    ///
+    /// The result is always nonzero, so callers can divide by it.
+    ///
+    /// [EIP-8198]: https://github.com/ethereum/consensus-specs/blob/v1.7.0-beta.4/specs/_features/eip8198/beacon-chain.md
+    #[must_use]
+    pub fn scale_inactivity_penalty_denominator(
+        &self,
+        denominator: NonZeroU64,
+        epoch: Epoch,
+    ) -> NonZeroU64 {
+        let current = self.slot_duration_ms_at_epoch(epoch);
+        let genesis = self.slot_duration_ms_at_epoch(GENESIS_EPOCH);
+
+        if current == genesis {
+            return denominator;
+        }
+
+        denominator
+            .get()
+            .saturating_mul(genesis.saturating_mul(genesis))
+            .checked_div(current.saturating_mul(current))
+            .and_then(NonZeroU64::new)
+            .unwrap_or(denominator)
+    }
+
+    /// Duration from genesis to the start of `slot`.
+    ///
+    /// Mirrors `compute_time_at_slot_ms` from [EIP-8198]. Because the slot duration can
+    /// change at the Heze boundary, this accumulates segment by segment rather than
+    /// multiplying by a single duration.
+    ///
+    /// [EIP-8198]: https://github.com/ethereum/consensus-specs/blob/v1.7.0-beta.4/specs/_features/eip8198/beacon-chain.md
+    #[must_use]
+    pub fn duration_from_genesis_at_slot<P: Preset>(&self, slot: Slot) -> Duration {
+        let mut end = slot.max(GENESIS_SLOT);
+        let mut millis = 0;
+
+        // Walk newest segment first, as `compute_time_at_slot_ms` does.
+        for (first_slot, duration) in self.slot_duration_segments::<P>().into_iter().rev() {
+            if first_slot < end {
+                let slots = end - first_slot;
+                let duration_ms = u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
+
+                millis = slots.saturating_mul(duration_ms).saturating_add(millis);
+                end = first_slot;
+            }
+        }
+
+        Duration::from_millis(millis)
+    }
+
+    /// Slot containing the instant `duration_from_genesis` after genesis.
+    ///
+    /// The inverse of [`Config::duration_from_genesis_at_slot`]. Mirrors
+    /// `compute_slot_at_time_ms` from [EIP-8198].
+    ///
+    /// [EIP-8198]: https://github.com/ethereum/consensus-specs/blob/v1.7.0-beta.4/specs/_features/eip8198/beacon-chain.md
+    #[must_use]
+    pub fn slot_at_duration_from_genesis<P: Preset>(
+        &self,
+        duration_from_genesis: Duration,
+    ) -> Slot {
+        let target = duration_from_genesis.as_millis();
+
+        let mut start_slot = GENESIS_SLOT;
+        let mut start = 0;
+        let mut slot_duration = self.slot_duration_ms;
+
+        // Find the latest segment that has already begun.
+        for (first_slot, duration) in self.slot_duration_segments::<P>() {
+            let first = self
+                .duration_from_genesis_at_slot::<P>(first_slot)
+                .as_millis();
+
+            if target >= first {
+                start_slot = first_slot;
+                start = first;
+                slot_duration = duration;
+            }
+        }
+
+        // `Duration::from_millis(0)` would make every instant fall in the same slot.
+        let slot_duration = slot_duration.as_millis().max(1);
+        let slots = u64::try_from(target.saturating_sub(start) / slot_duration).unwrap_or(u64::MAX);
+
+        start_slot.saturating_add(slots)
     }
 
     #[must_use]
@@ -1349,6 +1536,7 @@ mod tests {
     use test_case::test_case;
 
     use super::*;
+    use crate::preset::Minimal;
 
     #[test_case(Config::mainnet())]
     #[test_case(Config::minimal())]
@@ -1388,6 +1576,83 @@ mod tests {
     ) {
         config.maximum_gossip_clock_disparity = config.slot_duration_ms.saturating_mul(2);
         assert_eq!(config.max_gossip_future_slots(), 2)
+    }
+
+    /// The `heze-devnet` shape: 6 s slots before the fork and 5 s from it, with the minimal
+    /// preset's 8 slots per epoch putting the Heze boundary at slot 8.
+    fn heze_devnet_config() -> Config {
+        Config {
+            slot_duration_ms_heze: Duration::from_secs(5),
+            ..Config::minimal()
+        }
+        .upgrade_once(Phase::Heze, 1)
+    }
+
+    #[test_case(0 => Duration::from_secs(6))]
+    #[test_case(7 => Duration::from_secs(6))]
+    #[test_case(8 => Duration::from_secs(5))]
+    #[test_case(9 => Duration::from_secs(5))]
+    fn slot_duration_changes_at_heze_boundary(slot: Slot) -> Duration {
+        heze_devnet_config().slot_duration_at_slot::<Minimal>(slot)
+    }
+
+    #[test_case(0 => Duration::ZERO)]
+    #[test_case(7 => Duration::from_secs(42))]
+    // The boundary slot itself is still reached after 8 pre-fork slot durations.
+    #[test_case(8 => Duration::from_secs(48))]
+    #[test_case(9 => Duration::from_secs(53))]
+    // 8 slots at 6 s, then 8 at 5 s.
+    #[test_case(16 => Duration::from_secs(88))]
+    fn duration_from_genesis_accumulates_piecewise(slot: Slot) -> Duration {
+        heze_devnet_config().duration_from_genesis_at_slot::<Minimal>(slot)
+    }
+
+    #[test_case(Duration::from_millis(47_999) => 7)]
+    #[test_case(Duration::from_secs(48) => 8)]
+    #[test_case(Duration::from_millis(52_999) => 8)]
+    #[test_case(Duration::from_secs(53) => 9)]
+    #[test_case(Duration::from_secs(88) => 16)]
+    fn slot_at_duration_from_genesis_inverts_piecewise(duration: Duration) -> Slot {
+        heze_devnet_config().slot_at_duration_from_genesis::<Minimal>(duration)
+    }
+
+    #[test]
+    fn slot_and_duration_round_trip_across_heze_boundary() {
+        let config = heze_devnet_config();
+
+        for slot in 0..32 {
+            let duration = config.duration_from_genesis_at_slot::<Minimal>(slot);
+
+            assert_eq!(
+                config.slot_at_duration_from_genesis::<Minimal>(duration),
+                slot,
+            );
+        }
+    }
+
+    #[test]
+    fn slot_duration_is_uniform_when_heze_is_not_scheduled() {
+        let config = Config::minimal();
+
+        assert_eq!(config.heze_fork_epoch, FAR_FUTURE_EPOCH);
+
+        assert_eq!(
+            config.duration_from_genesis_at_slot::<Minimal>(10),
+            config.slot_duration_ms.saturating_mul(10),
+        );
+    }
+
+    /// `SLOT_DURATION_MS_HEZE` is what `heze-devnet` configurations use;
+    /// `SLOT_DURATION_MS_EIP8198` is what upstream `configs/*.yaml` use.
+    #[test_case("SLOT_DURATION_MS_HEZE")]
+    #[test_case("SLOT_DURATION_MS_EIP8198")]
+    fn slot_duration_ms_heze_is_parsed_under_either_name(key: &str) {
+        let json = format!(r#"{{"{key}": "5000"}}"#);
+
+        let config: Config =
+            serde_json::from_str(&json).expect("configuration variable should be recognized");
+
+        assert_eq!(config.slot_duration_ms_heze, Duration::from_secs(5));
     }
 
     #[test]

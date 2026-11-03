@@ -1084,7 +1084,11 @@ pub fn apply_attestation<P: Preset>(
     )?;
 
     // > Update epoch participation flags
-    let base_reward_per_increment = get_base_reward_per_increment(state)?;
+    // > [Modified in EIP8198]
+    // The proposer's share is priced at the attestation's target epoch, so that around a
+    // slot duration change it matches the attesters' rewards for that same epoch.
+    let base_reward_per_increment =
+        get_base_reward_per_increment(config, state, attestation.data.target.epoch)?;
 
     let attesting_indices_with_base_rewards = get_attesting_indices(state, attestation)?
         .into_iter()

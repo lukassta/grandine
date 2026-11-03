@@ -1137,11 +1137,15 @@ impl<P: Preset, W: Wait> Network<P, W> {
 
                 let min_ttl = match expiration {
                     Some(expiration) => {
-                        let time_diff = expiration
-                            .saturating_sub(current_slot)
-                            .saturating_mul(chain_config.slot_duration_ms.as_secs());
+                        // Not `slots * slot_duration`: the slot duration can change at the
+                        // Heze boundary, so measure the gap piecewise.
+                        let time_diff = chain_config
+                            .duration_from_genesis_at_slot::<P>(expiration)
+                            .saturating_sub(
+                                chain_config.duration_from_genesis_at_slot::<P>(current_slot),
+                            );
 
-                        Instant::now().checked_add(Duration::from_secs(time_diff))
+                        Instant::now().checked_add(time_diff)
                     }
                     None => None,
                 };

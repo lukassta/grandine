@@ -201,7 +201,13 @@ impl<P: Preset> AttestationPacker<P> {
     ) -> Result<u64> {
         let attestation_epoch = self.attestation_epoch(attestation)?;
         let participation_flags = self.participation_flags(attestation)?;
-        let base_reward_per_increment = get_base_reward_per_increment(&self.state)?;
+        // Mirror `apply_attestation`: the proposer's share is priced at the attestation's
+        // target epoch, so the ranking matches the reward the block will actually earn.
+        let base_reward_per_increment = get_base_reward_per_increment(
+            &self.config,
+            &self.state,
+            attestation.data.target.epoch,
+        )?;
 
         self.attesting_indices(attestation)?
             .map(|validator_index| {

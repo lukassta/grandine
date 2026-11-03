@@ -5,7 +5,8 @@ use helper_functions::{
     accessors::{
         self, attestation_epoch, get_attestation_participation_flags, get_base_reward,
         get_base_reward_per_increment, get_beacon_proposer_index, get_block_root_at_slot,
-        index_of_public_key, initialize_shuffled_indices, total_active_balance,
+        get_current_epoch, index_of_public_key, initialize_shuffled_indices,
+        total_active_balance,
     },
     altair::slash_validator,
     error::SignatureKind,
@@ -340,7 +341,11 @@ pub fn apply_attestation<P: Preset>(
         get_attestation_participation_flags(state, data, inclusion_delay, None)?;
 
     // > Update epoch participation flags
-    let base_reward_per_increment = get_base_reward_per_increment(state)?;
+    // > [Modified in EIP8198]
+    // The proposer's share is priced at the attestation's target epoch, so that around a
+    // slot duration change it matches the attesters' rewards for that same epoch.
+    let base_reward_per_increment =
+        get_base_reward_per_increment(config, state, attestation.data.target.epoch)?;
 
     let attesting_indices_with_base_rewards = get_attesting_indices(state, data, aggregation_bits)?
         .map(|validator_index| {
@@ -540,8 +545,10 @@ pub fn process_sync_aggregate<P: Preset>(
 
     // > Compute participant and proposer rewards
     let total_active_increments = total_active_balance(state) / P::EFFECTIVE_BALANCE_INCREMENT;
-    let total_base_rewards =
-        get_base_reward_per_increment(state)?.try_mul(total_active_increments)?;
+    // > [Modified in EIP8198]
+    // Sync committee rewards are paid for the current epoch.
+    let total_base_rewards = get_base_reward_per_increment(config, state, get_current_epoch(state))?
+        .try_mul(total_active_increments)?;
 
     let max_participant_rewards = (total_base_rewards.try_mul(SYNC_REWARD_WEIGHT)?
         / WEIGHT_DENOMINATOR)

@@ -228,15 +228,10 @@ impl Tick {
         let duration_since_genesis =
             duration_since_unix_epoch.saturating_sub(unix_epoch_to_genesis);
 
-        let Self { slot, kind } = self;
-        let slot_duration = config.slot_duration_ms;
-        let tick_duration = tick_duration_at_slot::<P>(config, slot);
-
-        let duration_before_slot =
-            slot_duration.saturating_mul(slot.saturating_sub(GENESIS_SLOT).try_into()?);
-
-        let duration_after_slot = tick_duration.saturating_mul(kind as u32);
-        let duration_until_tick = duration_before_slot.saturating_add(duration_after_slot);
+        // Not `slot_duration * slots_since_genesis + tick_duration * kind`: the slot
+        // duration can change at the Heze boundary, and a rounded tick duration does not
+        // fill a slot exactly, so the offset is taken from genesis directly.
+        let duration_until_tick = duration_from_genesis_at_tick::<P>(config, self);
 
         Ok(duration_since_genesis.saturating_sub(duration_until_tick))
     }
@@ -248,38 +243,38 @@ impl Tick {
     ) -> Result<Self> {
         let unix_epoch_to_genesis = Duration::from_secs(genesis_time);
 
-        // `Duration` does not implement `Div<Duration>` or `Rem<Duration>`,
-        // so we have to do arithmetic on nanoseconds.
-        let nanos_since_genesis = duration_since_unix_epoch
-            .saturating_sub(unix_epoch_to_genesis)
+        let duration_since_genesis =
+            duration_since_unix_epoch.saturating_sub(unix_epoch_to_genesis);
+
+        // First, determine the slot. The slot duration can change at the Heze boundary, so
+        // this is not a single division, and the tick index cannot be derived by taking a
+        // remainder over all ticks since genesis either.
+        let slot = config.slot_at_duration_from_genesis::<P>(duration_since_genesis);
+
+        // Then, determine which tick within that slot, from the offset into the slot.
+        //
+        // `Duration` does not implement `Div<Duration>`, so we have to do arithmetic on
+        // nanoseconds. The division comes last, inverting `tick_offset_in_slot`, so that a
+        // rounded tick duration cannot misplace the last tick of a slot.
+        let nanos_since_slot = duration_since_genesis
+            .saturating_sub(config.duration_from_genesis_at_slot::<P>(slot))
             .as_nanos();
 
-        // First, determine the slot based on unix epoch
-        let nanos_per_slot = config.slot_duration_ms.as_nanos();
-        let slots_since_genesis = u64::try_from(
-            nanos_since_genesis
-                .checked_div(nanos_per_slot)
-                .expect("slot duration must be at least one nanosecond"),
-        )?;
-
-        let slot = GENESIS_SLOT.saturating_add(slots_since_genesis);
-
-        // Then, determine which tick within that slot
-        let nanos_per_tick = tick_duration_at_slot::<P>(config, slot).as_nanos();
+        let slot_duration = config.slot_duration_at_slot::<P>(slot).as_nanos();
         let ticks_per_slot = u128::try_from(TickKind::ticks_per_slot::<P>(config, slot))?;
 
-        let ticks_since_genesis = nanos_since_genesis
-            .checked_div(nanos_per_tick)
-            .expect("tick_duration must be at least one nanosecond");
-
         let ticks_since_slot = usize::try_from(
-            ticks_since_genesis
-                .checked_rem(ticks_per_slot)
-                .expect("slot should have at least one tick"),
+            nanos_since_slot
+                .saturating_mul(ticks_per_slot)
+                .checked_div(slot_duration)
+                .expect("slot duration must be at least one nanosecond")
+                // The slot was resolved from the same offset, so this only guards against
+                // a rounding edge exactly on the next slot's boundary.
+                .min(ticks_per_slot.saturating_sub(1)),
         )?;
 
         let kind = TickKind::from_index_at_slot::<P>(config, slot, ticks_since_slot)
-            .expect("more ticks would add up to additional slots");
+            .expect("the offset into a slot cannot add up to a whole slot of ticks");
 
         Ok(Self::new(slot, kind))
     }
@@ -400,10 +395,15 @@ pub fn ticks<P: Preset>(
                     let current_tick = next_tick;
                     next_tick = current_tick.next::<P>(config)?;
 
-                    // Recalculate tick duration because it can change at the fork boundary.
-                    let tick_duration = tick_duration_at_slot::<P>(config, current_tick.slot);
+                    // Advance by the gap between the two ticks' offsets from genesis rather
+                    // than by a rounded tick duration. Both ends are absolute, so the
+                    // deadlines cannot drift however long the stream runs -- adding a
+                    // rounded duration each time loses 8 ms per slot at Heze's 5 s slots.
+                    let advance = duration_from_genesis_at_tick::<P>(config, next_tick)
+                        .saturating_sub(duration_from_genesis_at_tick::<P>(config, current_tick));
+
                     deadline = deadline
-                        .checked_add(tick_duration)
+                        .checked_add(advance)
                         .ok_or(ClockError::NextInstantOverflow)?;
 
                     // Emit only ticks that the application currently uses.
@@ -483,47 +483,34 @@ fn next_tick_with_instant<P: Preset, I: InstantLike, S: SystemTimeLike>(
             .checked_sub(unix_epoch_to_genesis)
             .expect("the difference from now to genesis fits in Duration");
 
-        let slots_since_genesis = genesis_to_now
-            .as_secs()
-            .checked_div(config.slot_duration_ms.as_secs())
-            .expect("slot_duration must be at least one second");
-
-        let genesis_to_current_slot = Duration::from_secs(
-            slots_since_genesis.saturating_mul(config.slot_duration_ms.as_secs()),
-        );
+        // The slot duration can change at the Heze boundary, so the current slot is not
+        // `genesis_to_now / slot_duration`.
+        let current_slot = config.slot_at_duration_from_genesis::<P>(genesis_to_now);
+        let genesis_to_current_slot = config.duration_from_genesis_at_slot::<P>(current_slot);
 
         let current_slot_to_now = genesis_to_now
             .checked_sub(genesis_to_current_slot)
             .expect("the difference from now to current slot fits in Duration");
 
-        next_tick = Tick::start_of_slot(GENESIS_SLOT.saturating_add(slots_since_genesis));
+        next_tick = Tick::start_of_slot(current_slot);
         now_to_next_tick = Duration::ZERO;
 
-        // Cache tick duration, and only update when phase changed
-        let mut tick_duration = tick_duration_at_slot::<P>(config, next_tick.slot);
-        let mut current_phase = config.phase_at_slot::<P>(next_tick.slot);
+        // Measure each candidate tick from the start of the current slot using its absolute
+        // offset from genesis. Accumulating a per-phase tick duration instead would both
+        // drift and need re-deriving at every fork boundary.
+        let offset_of = |tick| {
+            duration_from_genesis_at_tick::<P>(config, tick).saturating_sub(genesis_to_current_slot)
+        };
 
         while now_to_next_tick < current_slot_to_now {
             next_tick = next_tick.next::<P>(config)?;
-            let next_phase = config.phase_at_slot::<P>(next_tick.slot);
-
-            if next_phase != current_phase {
-                tick_duration = tick_duration_at_slot::<P>(config, next_tick.slot);
-                current_phase = next_phase;
-            }
-            now_to_next_tick = now_to_next_tick.saturating_add(tick_duration);
+            now_to_next_tick = offset_of(next_tick);
         }
 
         if only_interval_ticks {
             while !next_tick.is_start_of_interval() {
                 next_tick = next_tick.next::<P>(config)?;
-                let next_phase = config.phase_at_slot::<P>(next_tick.slot);
-
-                if next_phase != current_phase {
-                    tick_duration = tick_duration_at_slot::<P>(config, next_tick.slot);
-                    current_phase = next_phase;
-                }
-                now_to_next_tick = now_to_next_tick.saturating_add(tick_duration);
+                now_to_next_tick = offset_of(next_tick);
             }
         }
 
@@ -537,21 +524,35 @@ fn next_tick_with_instant<P: Preset, I: InstantLike, S: SystemTimeLike>(
     Ok((next_tick, next_instant))
 }
 
-fn tick_duration_at_slot<P: Preset>(config: &Config, slot: Slot) -> Duration {
-    let slot_duration = config.slot_duration_ms;
+/// Offset from the start of `slot` to the tick at `index` within it.
+///
+/// The division is applied last, so the ticks of a slot always add up to exactly the slot.
+/// A single rounded tick duration does not: Heze's 5 s slot over 16 ticks truncates to
+/// 312 ms, and 16 of those is 4992 ms. Scheduling advances one tick at a time, so that 8 ms
+/// would be lost on every slot and the clock would run progressively fast.
+fn tick_offset_in_slot<P: Preset>(config: &Config, slot: Slot, index: usize) -> Duration {
+    let slot_duration = config.slot_duration_at_slot::<P>(slot).as_nanos();
 
-    let ticks_per_slot_u128 = u128::try_from(TickKind::ticks_per_slot::<P>(config, slot))
+    let ticks_per_slot = u128::try_from(TickKind::ticks_per_slot::<P>(config, slot))
         .expect("number of ticks per slot should fit in u128");
 
-    let tick_duration_in_ms = u64::try_from(
-        slot_duration
-            .as_millis()
-            .checked_div(ticks_per_slot_u128)
-            .expect("there should be at least one tick per slot"),
-    )
-    .expect("tick duration in ms should fit in u64");
+    let index = u128::try_from(index).expect("tick index should fit in u128");
 
-    Duration::from_millis(tick_duration_in_ms)
+    let nanos = slot_duration
+        .saturating_mul(index)
+        .checked_div(ticks_per_slot)
+        .expect("there should be at least one tick per slot");
+
+    Duration::from_nanos(u64::try_from(nanos).unwrap_or(u64::MAX))
+}
+
+/// Offset from genesis to `tick`.
+///
+/// Absolute, so rounding within any single slot or tick cannot accumulate.
+fn duration_from_genesis_at_tick<P: Preset>(config: &Config, tick: Tick) -> Duration {
+    config
+        .duration_from_genesis_at_slot::<P>(tick.slot)
+        .saturating_add(tick_offset_in_slot::<P>(config, tick.slot, tick.kind as usize))
 }
 
 #[cfg(test)]
@@ -804,7 +805,8 @@ mod tests {
         .expect("genesis_time_in_ms should fit in u64");
 
         let config = Config::mainnet().start_and_stay_in(Phase::Gloas);
-        let tick_duration = Duration::from_millis(750); // tick_duration_at_slot(&config, GENESIS_SLOT);
+        // `tick_offset_in_slot::<Mainnet>(&config, GENESIS_SLOT, 1)`: 12 s over 16 ticks.
+        let tick_duration = Duration::from_millis(750);
         let mut ticks = ticks::<Mainnet>(&config, genesis_time_in_ms)?;
         let mut next_tick = || ticks.next().now_or_never().flatten().transpose();
 
@@ -1193,7 +1195,7 @@ mod tests {
     #[test_case(Duration::from_secs(18) => Duration::from_millis(1500))]
     fn tick_duration_with_custom_slot_duration_pre_gloas(slot_duration: Duration) -> Duration {
         let config = config_with_slot_duration(slot_duration);
-        tick_duration_at_slot::<Mainnet>(&config, GENESIS_SLOT)
+        tick_offset_in_slot::<Mainnet>(&config, GENESIS_SLOT, 1)
     }
 
     #[test_case(Duration::from_secs(2) => Duration::from_millis(125))]
@@ -1205,7 +1207,7 @@ mod tests {
     #[test_case(Duration::from_secs(18) => Duration::from_millis(1125))]
     fn tick_duration_with_seconds_per_slot_post_gloas(slot_duration: Duration) -> Duration {
         let config = config_with_slot_duration(slot_duration).start_and_stay_in(Phase::Gloas);
-        tick_duration_at_slot::<Mainnet>(&config, GENESIS_SLOT)
+        tick_offset_in_slot::<Mainnet>(&config, GENESIS_SLOT, 1)
     }
 
     fn tick_at_time_relative_to_genesis<P: Preset>(config: &Config, offset: i64) -> Tick {
@@ -1261,7 +1263,91 @@ mod tests {
     fn config_with_slot_duration(slot_duration: Duration) -> Config {
         Config {
             slot_duration_ms: slot_duration,
+            // Keep the duration uniform across the Heze boundary, so the helper means the
+            // same thing in every phase.
+            slot_duration_ms_heze: slot_duration,
             ..Config::default()
+        }
+    }
+
+    /// The `heze-devnet` shape: 6 s slots before the fork and 5 s from it, with the minimal
+    /// preset's 8 slots per epoch putting the Heze boundary at slot 8.
+    ///
+    /// 5 s over 16 ticks does not divide evenly, which is what makes this interesting.
+    fn heze_devnet_config() -> Config {
+        Config {
+            slot_duration_ms_heze: Duration::from_secs(5),
+            ..Config::minimal()
+        }
+        .upgrade_once(Phase::Heze, 1)
+    }
+
+    /// The ticks of a slot must add up to *exactly* the slot.
+    ///
+    /// Scheduling advances one tick at a time, so a remainder here is lost on every slot
+    /// and the clock runs progressively fast. Heze's 5 s slot over 16 ticks is the case
+    /// that caught this: `5000 / 16` truncates to 312 ms and 16 of those is 4992 ms.
+    #[test_case(0)]
+    #[test_case(7)]
+    #[test_case(8)]
+    #[test_case(9)]
+    #[test_case(63)]
+    fn ticks_add_up_to_the_whole_slot(slot: Slot) {
+        let config = heze_devnet_config();
+        let ticks_per_slot = TickKind::ticks_per_slot::<Minimal>(&config, slot);
+
+        assert_eq!(
+            tick_offset_in_slot::<Minimal>(&config, slot, ticks_per_slot),
+            config.slot_duration_at_slot::<Minimal>(slot),
+            "the ticks of slot {slot} do not fill it",
+        );
+    }
+
+    /// Walking every tick of a slot must land exactly on the next slot, however many slots
+    /// have passed since the duration changed.
+    #[test]
+    fn tick_offsets_from_genesis_do_not_drift() {
+        let config = heze_devnet_config();
+
+        for slot in 0..64 {
+            let ticks_per_slot = TickKind::ticks_per_slot::<Minimal>(&config, slot);
+
+            let walked = config
+                .duration_from_genesis_at_slot::<Minimal>(slot)
+                .saturating_add(tick_offset_in_slot::<Minimal>(&config, slot, ticks_per_slot));
+
+            assert_eq!(
+                walked,
+                config.duration_from_genesis_at_slot::<Minimal>(slot + 1),
+                "slot {slot} drifted",
+            );
+        }
+    }
+
+    /// Every tick resolves back to itself from its own offset, on both sides of the fork.
+    #[test]
+    fn ticks_round_trip_through_their_offset_from_genesis() {
+        let config = heze_devnet_config();
+        let genesis_time = config.min_genesis_time;
+        let unix_epoch_to_genesis = Duration::from_secs(genesis_time);
+
+        for slot in 0..24 {
+            let mut tick = Tick::start_of_slot(slot);
+
+            for _ in 0..TickKind::ticks_per_slot::<Minimal>(&config, slot) {
+                let offset = duration_from_genesis_at_tick::<Minimal>(&config, tick);
+
+                let resolved = Tick::from_duration::<Minimal>(
+                    &config,
+                    unix_epoch_to_genesis.saturating_add(offset),
+                    genesis_time,
+                )
+                .expect("tick offsets are within range");
+
+                assert_eq!(resolved, tick, "tick at {offset:?} did not round-trip");
+
+                tick = tick.next::<Minimal>(&config).expect("slots do not run out");
+            }
         }
     }
 

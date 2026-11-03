@@ -1,7 +1,10 @@
 use anyhow::Result;
 use arithmetic::{NonZeroU64Ext as _, U64Ext as _};
 use helper_functions::{
-    accessors::{compute_base_reward, get_base_reward_per_increment, total_active_balance},
+    accessors::{
+        compute_base_reward, get_base_reward_per_increment, get_previous_epoch,
+        total_active_balance,
+    },
     predicates::is_in_inactivity_leak,
 };
 use itertools::izip;
@@ -26,7 +29,10 @@ pub fn epoch_deltas<P: Preset, D: EpochDeltas>(
     participation: impl IntoIterator<Item = Participation>,
 ) -> Result<Vec<D>> {
     let in_inactivity_leak = is_in_inactivity_leak(state)?;
-    let base_reward_per_increment = get_base_reward_per_increment(state)?;
+    // Deltas pay for the previous epoch, so they are priced at the slot duration in
+    // effect then, which differs from the current one right after a change.
+    let previous_epoch = get_previous_epoch(state);
+    let base_reward_per_increment = get_base_reward_per_increment(config, state, previous_epoch)?;
 
     let increment = P::EFFECTIVE_BALANCE_INCREMENT;
     let source_increments = statistics.previous_epoch_source_participating_balance / increment;
@@ -90,9 +96,15 @@ pub fn epoch_deltas<P: Preset, D: EpochDeltas>(
                     .add_target_penalty(participation_component_penalty(TIMELY_TARGET_WEIGHT)?)?;
 
                 let penalty_numerator = effective_balance.try_mul(*inactivity_score)?;
-                let penalty_denominator = config
-                    .inactivity_score_bias
-                    .try_mul(P::INACTIVITY_PENALTY_QUOTIENT_BELLATRIX)?;
+                // > [Modified in EIP8198]
+                // The penalty scales with the square of the epoch duration, so the leak
+                // over a fixed wall-clock span is unchanged.
+                let penalty_denominator = config.scale_inactivity_penalty_denominator(
+                    config
+                        .inactivity_score_bias
+                        .try_mul(P::INACTIVITY_PENALTY_QUOTIENT_BELLATRIX)?,
+                    previous_epoch,
+                );
 
                 deltas.add_inactivity_penalty(penalty_numerator / penalty_denominator)?;
             }

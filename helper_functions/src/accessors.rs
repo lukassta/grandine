@@ -794,10 +794,32 @@ pub fn compute_base_reward<P: Preset>(
         .map_err(Into::into)
 }
 
-pub fn get_base_reward_per_increment<P: Preset>(state: &impl BeaconState<P>) -> Result<Gwei> {
-    P::EFFECTIVE_BALANCE_INCREMENT
-        .get()
-        .try_mul(P::BASE_REWARD_FACTOR)?
+/// Base reward per increment, priced at the slot duration in effect during `epoch`.
+///
+/// `epoch` is the epoch the reward *pays for*, which is not always the current one: epoch
+/// deltas pay for the previous epoch, and an attestation's proposer reward is priced at the
+/// attestation's target epoch. Around a slot duration change those differ from the current
+/// epoch, and using the wrong one shifts every reward.
+///
+/// See [EIP-8198]'s modified `get_base_reward_per_increment`.
+///
+/// [EIP-8198]: https://github.com/ethereum/consensus-specs/blob/v1.7.0-beta.4/specs/_features/eip8198/beacon-chain.md
+pub fn get_base_reward_per_increment<P: Preset>(
+    config: &Config,
+    state: &impl BeaconState<P>,
+    epoch: Epoch,
+) -> Result<Gwei> {
+    // > [Modified in EIP8198]
+    // Issuance is a per-wall-clock-time rate, so it is repriced by the slot duration ratio
+    // before being divided by the square root of the total active balance.
+    let numerator = config.scale_by_slot_duration_ratio(
+        P::EFFECTIVE_BALANCE_INCREMENT
+            .get()
+            .try_mul(P::BASE_REWARD_FACTOR)?,
+        epoch,
+    );
+
+    numerator
         .try_div(total_active_balance(state).sqrt())
         .map_err(Into::into)
 }
@@ -1003,6 +1025,8 @@ pub fn get_consolidation_churn_limit<P: Preset>(
     if state.is_post_gloas() {
         total_active_balance(state)
             .div(config.consolidation_churn_limit_quotient)
+            // > [Modified in EIP8198]
+            .pipe(|churn| scale_churn_by_slot_duration(config, state, churn))
             .prev_multiple_of(P::EFFECTIVE_BALANCE_INCREMENT)
             .pipe(Ok)
     } else {
@@ -1012,14 +1036,31 @@ pub fn get_consolidation_churn_limit<P: Preset>(
     }
 }
 
+/// Reprice a per-epoch churn limit to the slot duration in effect for `state`.
+///
+/// Churn is a per-wall-clock-time rate, so [EIP-8198] scales it alongside issuance when the
+/// slot duration changes. Identity for configurations that keep the slot duration constant.
+///
+/// [EIP-8198]: https://github.com/ethereum/consensus-specs/blob/v1.7.0-beta.4/specs/_features/eip8198/beacon-chain.md
+fn scale_churn_by_slot_duration<P: Preset>(
+    config: &Config,
+    state: &impl BeaconState<P>,
+    churn: Gwei,
+) -> Gwei {
+    config.scale_by_slot_duration_ratio(churn, get_current_epoch(state))
+}
+
 #[must_use]
 pub fn get_activation_churn_limit<P: Preset>(config: &Config, state: &impl BeaconState<P>) -> Gwei {
-    let churn = total_active_balance(state)
+    total_active_balance(state)
         .div(config.churn_limit_quotient_gloas)
         .max(config.min_per_epoch_churn_limit_electra)
-        .prev_multiple_of(P::EFFECTIVE_BALANCE_INCREMENT);
-
-    churn.min(config.max_per_epoch_activation_churn_limit_gloas)
+        // > [Modified in EIP8198]
+        // The cap is applied before scaling, so the maximum activation rate is scaled too,
+        // and the rounding to an increment happens once, after scaling.
+        .min(config.max_per_epoch_activation_churn_limit_gloas)
+        .pipe(|churn| scale_churn_by_slot_duration(config, state, churn))
+        .prev_multiple_of(P::EFFECTIVE_BALANCE_INCREMENT)
 }
 
 #[must_use]
@@ -1027,6 +1068,8 @@ pub fn get_exit_churn_limit<P: Preset>(config: &Config, state: &impl BeaconState
     total_active_balance(state)
         .div(config.churn_limit_quotient_gloas)
         .max(config.min_per_epoch_churn_limit_electra)
+        // > [Modified in EIP8198]
+        .pipe(|churn| scale_churn_by_slot_duration(config, state, churn))
         .prev_multiple_of(P::EFFECTIVE_BALANCE_INCREMENT)
 }
 

@@ -334,7 +334,10 @@ pub fn epoch_deltas<P: Preset, D: AltairEpochDeltas>(
     participation: impl IntoIterator<Item = Participation>,
 ) -> Result<Vec<D>> {
     let in_inactivity_leak = is_in_inactivity_leak(state)?;
-    let base_reward_per_increment = get_base_reward_per_increment(state)?;
+    // Deltas pay for the previous epoch, so they are priced at the slot duration in
+    // effect then, which differs from the current one right after a change.
+    let base_reward_per_increment =
+        get_base_reward_per_increment(config, state, get_previous_epoch(state))?;
 
     let increment = P::EFFECTIVE_BALANCE_INCREMENT;
     let source_increments = statistics.previous_epoch_source_participating_balance / increment;
