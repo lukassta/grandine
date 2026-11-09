@@ -23,10 +23,12 @@ use futures::{
 };
 use keymanager::KeyManager;
 use operation_pools::{
-    AttestationAggPool, BlsToExecutionChangePool, PayloadAttestationAggPool, SyncCommitteeAggPool,
+    AttestationAggPool, BlsToExecutionChangePool, PayloadAttestationAggPool,
+    RandaoCommitmentRegistrationPool, SyncCommitteeAggPool,
 };
 use p2p::{P2pToValidator, ValidatorToP2p};
 use pubkey_cache::PubkeyCache;
+use randao_chain::HashChainStore;
 use reqwest::Client;
 use scc::HashMap as SccHashMap;
 use serde::Deserialize;
@@ -212,9 +214,12 @@ impl<P: Preset> Context<P> {
         let (bls_to_execution_change_pool, _) = BlsToExecutionChangePool::new(
             controller.clone_arc(),
             event_channels.clone_arc(),
-            pool_to_p2p_tx,
+            pool_to_p2p_tx.clone(),
             None,
         );
+
+        let (randao_commitment_registration_pool, _) =
+            RandaoCommitmentRegistrationPool::new(controller.clone_arc(), pool_to_p2p_tx);
 
         let payload_attestation_agg_pool = PayloadAttestationAggPool::new(
             controller.clone_arc(),
@@ -264,6 +269,8 @@ impl<P: Preset> Context<P> {
             slashing_protector,
             payload_attestation_agg_pool,
             sync_committee_agg_pool.clone_arc(),
+            randao_commitment_registration_pool,
+            Arc::new(HashChainStore::new()),
             None,
             None,
             validator_channels,

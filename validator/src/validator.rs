@@ -1,6 +1,6 @@
 //! <https://github.com/ethereum/consensus-specs/blob/b2f42bf4d79432ee21e2f2b3912ff4bbf7898ada/specs/phase0/validator.md>
 
-use core::{error::Error as StdError, time::Duration};
+use core::{error::Error as StdError, num::NonZeroU64, time::Duration};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     path::Path,
@@ -41,7 +41,7 @@ use futures::{
 };
 use helper_functions::{
     accessors, misc,
-    signing::{RandaoEpoch, SignForAllForks, SignForSingleFork},
+    signing::{RandaoEpoch, SignForAllForks, SignForAllForksWithGenesis, SignForSingleFork},
 };
 use itertools::Itertools as _;
 use keymanager::ProposerConfigs;
@@ -50,10 +50,11 @@ use logging::{debug_with_peers, error_with_peers, info_with_peers, warn_with_pee
 use once_cell::sync::OnceCell;
 use operation_pools::{
     AttestationAggPool, AttestationKey, Origin, PayloadAttestationAggPool, PoolAdditionOutcome,
-    SyncCommitteeAggPool,
+    RandaoCommitmentRegistrationPool, SyncCommitteeAggPool,
 };
 use p2p::{P2pToValidator, ToSubnetService, ValidatorToP2p};
 use prometheus_metrics::Metrics;
+use randao_chain::{HASH_CHAIN_LENGTH, HashChainStore};
 use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
 use signer::{Signer, SigningMessage, SigningTriple, Snapshot};
 use slasher::{SlasherToValidator, ValidatorToSlasher};
@@ -88,6 +89,9 @@ use types::{
             SignedAggregateAndProof as GloasSignedAggregateAndProof,
             SignedExecutionPayloadEnvelope, SignedProposerPreferences,
         },
+    },
+    eip8321::containers::{
+        RandaoCommitmentRegistration, SignedRandaoCommitmentRegistration,
     },
     heze::containers::{InclusionList, SignedInclusionList},
     nonstandard::{
@@ -178,6 +182,9 @@ pub struct Validator<P: Preset, W: Wait> {
     builder_api: Option<Arc<BuilderApi>>,
     doppelganger_protection: Option<Arc<DoppelgangerProtection>>,
     event_channels: Arc<EventChannels<P>>,
+    randao_commitment_registration_pool: Arc<RandaoCommitmentRegistrationPool>,
+    hash_chain_store: Arc<HashChainStore>,
+    last_randao_registration_epoch: Option<Epoch>,
     last_registration_epoch: Option<Epoch>,
     proposer_configs: Arc<ProposerConfigs>,
     signer: Arc<Signer>,
@@ -217,6 +224,8 @@ impl<P: Preset, W: Wait + Sync> Validator<P, W> {
         slashing_protector: Arc<Mutex<SlashingProtector>>,
         payload_attestation_agg_pool: Arc<PayloadAttestationAggPool<P, W>>,
         sync_committee_agg_pool: Arc<SyncCommitteeAggPool<P, W>>,
+        randao_commitment_registration_pool: Arc<RandaoCommitmentRegistrationPool>,
+        hash_chain_store: Arc<HashChainStore>,
         metrics: Option<Arc<Metrics>>,
         validator_statistics: Option<Arc<ValidatorStatistics>>,
         channels: Channels<P, W>,
@@ -269,6 +278,9 @@ impl<P: Preset, W: Wait + Sync> Validator<P, W> {
             builder_api,
             doppelganger_protection,
             event_channels,
+            randao_commitment_registration_pool,
+            hash_chain_store,
+            last_randao_registration_epoch: None,
             last_registration_epoch: None,
             proposer_configs,
             signer,
@@ -819,6 +831,15 @@ impl<P: Preset, W: Wait + Sync> Validator<P, W> {
         {
             self.publish_proposer_preferences(&slot_head);
             self.last_proposer_preferences_epoch = Some(current_epoch);
+        }
+
+        // Unlike proposer preferences this cannot run a fork early: a registration is only
+        // valid against a state that has already upgraded.
+        if self.last_randao_registration_epoch != Some(current_epoch)
+            && matches!(slot_head.beacon_state.as_ref(), BeaconState::Eip8321(_))
+        {
+            self.register_randao_commitments(&slot_head);
+            self.last_randao_registration_epoch = Some(current_epoch);
         }
 
         match kind {
@@ -3033,6 +3054,124 @@ impl<P: Preset, W: Wait + Sync> Validator<P, W> {
 
     #[expect(clippy::too_many_lines)]
     #[instrument(level = "debug", skip_all)]
+    /// Register a hash-chain RANDAO commitment for each own validator that has none.
+    ///
+    /// EIP-8321 makes registration optional and one-shot: until a commitment is registered
+    /// the validator keeps using the legacy BLS reveal, and once registered it can never be
+    /// changed. Candidates are therefore filtered on the canonical state — a validator that
+    /// already has a commitment, or a pending one, is skipped — and the chain is generated
+    /// idempotently so a registration already in flight is never stranded by a fresh chain.
+    fn register_randao_commitments(&mut self, slot_head: &SlotHead<P>) {
+        let signer_snapshot = self.signer.load().clone_arc();
+
+        if signer_snapshot.no_keys() {
+            return;
+        }
+
+        let BeaconState::Eip8321(state) = slot_head.beacon_state.as_ref() else {
+            return;
+        };
+
+        let Some(length) = NonZeroU64::new(HASH_CHAIN_LENGTH) else {
+            return;
+        };
+
+        let beacon_state = slot_head.beacon_state.clone_arc();
+
+        let candidates = signer_snapshot
+            .keys()
+            .filter_map(|pubkey| {
+                let validator_index = accessors::index_of_public_key(&beacon_state, pubkey)?;
+
+                // Already registered: the commitment is permanent, so there is nothing to do.
+                if !ssz::SszList::get(&state.randao_commitments, validator_index)
+                    .ok()?
+                    .is_zero()
+                {
+                    return None;
+                }
+
+                // Already queued in the canonical state; re-registering would be rejected.
+                if state
+                    .pending_randao_commitments
+                    .into_iter()
+                    .any(|pending| pending.validator_index == validator_index)
+                {
+                    return None;
+                }
+
+                let commitment = self
+                    .hash_chain_store
+                    .ensure_chain(validator_index, length)
+                    .map_err(|error| {
+                        warn_with_peers!(
+                            "failed to generate a RANDAO hash chain for validator \
+                             {validator_index}: {error}"
+                        );
+                    })
+                    .ok()?;
+
+                Some((
+                    *pubkey,
+                    RandaoCommitmentRegistration {
+                        validator_index,
+                        commitment,
+                    },
+                ))
+            })
+            .collect_vec();
+
+        if candidates.is_empty() {
+            return;
+        }
+
+        let chain_config = self.chain_config.clone_arc();
+        let pool = self.randao_commitment_registration_pool.clone_arc();
+
+        tokio::spawn(async move {
+            let triples = candidates
+                .iter()
+                .map(|(pubkey, registration)| SigningTriple {
+                    message: SigningMessage::RandaoCommitmentRegistration(*registration),
+                    // Deliberately fork-agnostic, so a registration stays valid across forks.
+                    signing_root: registration.signing_root(&chain_config, beacon_state.as_ref()),
+                    public_key: *pubkey,
+                })
+                .collect_vec();
+
+            let fork_info = Some(beacon_state.as_ref().into());
+
+            let signatures = match signer_snapshot
+                .sign_triples_without_slashing_protection(triples, fork_info)
+                .await
+            {
+                Ok(signatures) => signatures,
+                Err(error) => {
+                    warn_with_peers!("failed to sign RANDAO commitment registrations: {error}");
+                    return;
+                }
+            };
+
+            for ((_, registration), signature) in candidates.into_iter().zip(signatures) {
+                info_with_peers!(
+                    "registering RANDAO hash-chain commitment (validator: {}, commitment: {:?})",
+                    registration.validator_index,
+                    registration.commitment,
+                );
+
+                // Into our own pool rather than straight to gossip: it publishes, retains the
+                // message across reorgs until it actually activates, and offers it to our own
+                // block producer first.
+                pool.notify_own_signed_randao_commitment_registration(Arc::new(
+                    SignedRandaoCommitmentRegistration {
+                        message: registration,
+                        signature: signature.into(),
+                    },
+                ));
+            }
+        });
+    }
+
     fn publish_proposer_preferences(&mut self, slot_head: &SlotHead<P>) {
         let signer_snapshot = self.signer.load().clone_arc();
 

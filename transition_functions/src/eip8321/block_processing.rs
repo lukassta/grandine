@@ -569,15 +569,6 @@ pub fn process_operations<P: Preset, V: Verifier>(
     Ok(())
 }
 
-/// BLAKE3 v1, unkeyed, 32-byte output. SSZ and the legacy path still use SHA-256.
-fn blake3_parts(parts: &[&[u8]]) -> types::phase0::primitives::H256 {
-    let mut hasher = blake3::Hasher::new();
-    for part in parts {
-        hasher.update(part);
-    }
-    types::phase0::primitives::H256(*hasher.finalize().as_bytes())
-}
-
 pub fn verify_hash_chain_reveal<P: Preset>(
     state: &Eip8321BeaconState<P>,
     body: &types::eip8321::containers::BeaconBlockBody<P>,
@@ -591,7 +582,7 @@ pub fn verify_hash_chain_reveal<P: Preset>(
         "active hash chain requires G2 infinity RANDAO signature"
     );
     ensure!(
-        blake3_parts(&[HASH_CHAIN_RANDAO_DST, body.hash_chain_reveal.as_bytes()])
+        hashing::blake3_parts(&[HASH_CHAIN_RANDAO_DST, body.hash_chain_reveal.as_bytes()])
             == *state.randao_commitments.get(proposer_index)?,
         "hash-chain reveal is not the commitment preimage",
     );
@@ -615,7 +606,7 @@ pub fn process_randao<P: Preset>(
     } else {
         verify_hash_chain_reveal(state, body, index)?;
         let epoch = get_current_epoch(state);
-        let mix = blake3_parts(&[
+        let mix = hashing::blake3_parts(&[
             get_randao_mix(state, epoch).as_bytes(),
             body.hash_chain_reveal.as_bytes(),
         ]);

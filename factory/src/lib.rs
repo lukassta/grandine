@@ -583,9 +583,6 @@ pub fn execution_payload<P: Preset>(
         .try_into()?;
 
     let execution_payload = match config.phase_at_slot::<P>(slot) {
-        Phase::Eip8321 => {
-            bail!("Eip8321 payload construction requires the FOCIL execution-engine interface")
-        }
         Phase::Phase0 | Phase::Altair => bail!("slot should be post-Bellatrix"),
         Phase::Bellatrix => BellatrixExecutionPayload {
             parent_hash,
@@ -604,7 +601,12 @@ pub fn execution_payload<P: Preset>(
             ..CapellaExecutionPayload::default()
         }
         .into(),
-        Phase::Deneb | Phase::Electra | Phase::Fulu | Phase::Gloas | Phase::Heze => {
+        Phase::Deneb
+        | Phase::Electra
+        | Phase::Fulu
+        | Phase::Gloas
+        | Phase::Heze
+        | Phase::Eip8321 => {
             DenebExecutionPayload {
                 parent_hash,
                 prev_randao,

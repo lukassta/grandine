@@ -895,6 +895,8 @@ pub enum PayloadAttributes<P: Preset> {
     Fulu(PayloadAttributesV3<P>),
     Gloas(PayloadAttributesV4<P>),
     Heze(PayloadAttributesV5<P>),
+    // EIP-8321 changes only the RANDAO reveal, so it reuses Heze's payload attributes.
+    Eip8321(PayloadAttributesV5<P>),
 }
 
 impl<P: Preset> PayloadAttributes<P> {
@@ -908,6 +910,7 @@ impl<P: Preset> PayloadAttributes<P> {
             Self::Fulu(_) => Phase::Fulu,
             Self::Gloas(_) => Phase::Gloas,
             Self::Heze(_) => Phase::Heze,
+            Self::Eip8321(_) => Phase::Eip8321,
         }
     }
 }

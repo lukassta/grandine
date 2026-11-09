@@ -58,13 +58,14 @@ use logging::{
 use metrics::{MetricsChannels, MetricsServerConfig, MetricsService, run_metrics_server};
 use operation_pools::{
     AttestationAggPool, BlobReconstructionPool, BlsToExecutionChangePool, Manager,
-    PayloadAttestationAggPool, SyncCommitteeAggPool,
+    PayloadAttestationAggPool, RandaoCommitmentRegistrationPool, SyncCommitteeAggPool,
 };
 use p2p::{
     BlockSyncService, BlockSyncServiceChannels, Channels, ListenAddr, Network, NetworkConfig,
     SubnetService,
 };
 use pubkey_cache::PubkeyCache;
+use randao_chain::HashChainStore;
 use reqwest::{Client, ClientBuilder};
 use scc::HashMap as SccHashMap;
 use signer::{KeyOrigin, Signer, Web3SignerClientOptions, build_web3signer_client};
@@ -608,9 +609,16 @@ pub async fn run_after_genesis<P: Preset>(
         BlsToExecutionChangePool::new(
             controller.clone_arc(),
             event_channels.clone_arc(),
-            pool_to_p2p_tx,
+            pool_to_p2p_tx.clone(),
             metrics.clone(),
         );
+
+    let (randao_commitment_registration_pool, randao_commitment_registration_pool_service) =
+        RandaoCommitmentRegistrationPool::new(controller.clone_arc(), pool_to_p2p_tx);
+
+    // Shared between the validator, which registers commitments, and the block producer,
+    // which reveals from the chains.
+    let hash_chain_store = Arc::new(HashChainStore::new());
 
     let pool_manager = Manager::new(
         attestation_agg_pool.clone_arc(),
@@ -630,6 +638,8 @@ pub async fn run_after_genesis<P: Preset>(
         execution_engine,
         attestation_agg_pool.clone_arc(),
         bls_to_execution_change_pool.clone_arc(),
+        randao_commitment_registration_pool.clone_arc(),
+        hash_chain_store.clone_arc(),
         sync_committee_agg_pool.clone_arc(),
         payload_attestation_agg_pool.clone_arc(),
         metrics.clone(),
@@ -660,6 +670,8 @@ pub async fn run_after_genesis<P: Preset>(
         slashing_protector,
         payload_attestation_agg_pool.clone_arc(),
         sync_committee_agg_pool.clone_arc(),
+        randao_commitment_registration_pool.clone_arc(),
+        hash_chain_store,
         metrics.clone(),
         validator_statistics.clone(),
         validator_channels,
@@ -702,6 +714,7 @@ pub async fn run_after_genesis<P: Preset>(
         dedicated_executor_normal_priority,
         sync_committee_agg_pool.clone_arc(),
         bls_to_execution_change_pool.clone_arc(),
+        randao_commitment_registration_pool.clone_arc(),
         metrics.clone(),
         registry.as_mut(),
         data_dumper.clone_arc(),
@@ -845,6 +858,7 @@ pub async fn run_after_genesis<P: Preset>(
         result = spawn_fallible(run_clock) => result,
         result = spawn_fallible(run_slasher) => result.map(from_never),
         result = spawn_fallible(bls_to_execution_change_pool_service.run()) => result,
+        result = spawn_fallible(randao_commitment_registration_pool_service.run()) => result,
         result = spawn_fallible(pool_manager.run()) => result,
         result = spawn_fallible(run_metrics_server) => result,
         result = spawn_fallible(run_metrics_service) => result,

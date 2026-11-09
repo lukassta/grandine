@@ -1719,7 +1719,7 @@ impl<P: Preset> ExecutionPayload<P> {
             (Self::Bellatrix(_), Phase::Bellatrix)
                 | (Self::Capella(_), Phase::Capella)
                 | (Self::Deneb(_), Phase::Deneb | Phase::Electra | Phase::Fulu)
-                | (Self::Gloas(_), Phase::Gloas | Phase::Heze)
+                | (Self::Gloas(_), Phase::Gloas | Phase::Heze | Phase::Eip8321)
         )
     }
 

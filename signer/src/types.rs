@@ -28,6 +28,7 @@ use types::{
         BeaconBlock as GloasBeaconBlock, ExecutionPayloadEnvelope, PayloadAttestationData,
         ProposerPreferences,
     },
+    eip8321::containers::RandaoCommitmentRegistration,
     heze::containers::{BeaconBlock as HezeBeaconBlock, InclusionList},
     phase0::{
         containers::{
@@ -92,6 +93,7 @@ pub enum SigningMessage<'block, P: Preset> {
     ValidatorRegistration(ValidatorRegistrationV1),
     VoluntaryExit(VoluntaryExit),
     ProposerPreferences(ProposerPreferences),
+    RandaoCommitmentRegistration(RandaoCommitmentRegistration),
 }
 
 impl<'block, P: Preset> From<&'block Hc<Phase0BeaconBlock<P>>> for SigningMessage<'block, P> {

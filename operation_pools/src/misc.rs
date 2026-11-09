@@ -32,6 +32,7 @@ pub enum PoolRejectionReason {
     InvalidContributionAndProof,
     InvalidPayloadAttestationMessage,
     InvalidProposerSlashing,
+    InvalidRandaoCommitmentRegistration,
     InvalidSyncCommitteeMessage,
     InvalidVoluntaryExit,
 }

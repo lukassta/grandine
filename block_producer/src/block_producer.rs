@@ -23,22 +23,23 @@ use futures::{
     lock::Mutex,
     stream::{FuturesOrdered, StreamExt as _},
 };
-use helper_functions::{accessors, misc, predicates};
+use helper_functions::{accessors, misc, predicates, verifier::SingleVerifier};
 use itertools::{Either, Itertools as _};
 use keymanager::ProposerConfigs;
 use logging::{debug_with_peers, error_with_peers, info_with_peers, warn_with_peers};
 use operation_pools::{
     AttestationAggPool, BlsToExecutionChangePool, PayloadAttestationAggPool, PoolAdditionOutcome,
-    PoolAttestation, PoolRejectionReason, SyncCommitteeAggPool,
+    PoolAttestation, PoolRejectionReason, RandaoCommitmentRegistrationPool, SyncCommitteeAggPool,
 };
 use prometheus_metrics::Metrics;
+use randao_chain::HashChainStore;
 use pubkey_cache::PubkeyCache;
 use ssz::{BitList, BitVector, ContiguousList, Hc, ProgressiveList, SszHash};
 use std_ext::ArcExt as _;
 use tap::Pipe as _;
 use tokio::task::JoinHandle;
 use tracing::instrument;
-use transition_functions::{capella, electra, gloas, unphased};
+use transition_functions::{capella, eip8321, electra, gloas, unphased};
 use try_from_iterator::TryFromIterator as _;
 use typenum::Unsigned as _;
 use types::{
@@ -90,6 +91,11 @@ use types::{
         },
         primitives::Transaction,
     },
+    eip8321::containers::{
+        BeaconBlock as Eip8321BeaconBlock, BeaconBlockBody as Eip8321BeaconBlockBody,
+        SignedExecutionPayloadBid as Eip8321SignedExecutionPayloadBid,
+        SignedRandaoCommitmentRegistration,
+    },
     heze::containers::{
         BeaconBlock as HezeBeaconBlock, BeaconBlockBody as HezeBeaconBlockBody,
         ExecutionPayloadBid as HezeExecutionPayloadBid,
@@ -105,7 +111,7 @@ use types::{
         },
         primitives::{
             CommitteeIndex, Epoch, ExecutionAddress, ExecutionBlockHash, H256, Slot, Uint256,
-            ValidatorIndex,
+            UnixSeconds, ValidatorIndex,
         },
     },
     preset::{Preset, SyncSubcommitteeSize},
@@ -143,6 +149,8 @@ impl<P: Preset, W: Wait> BlockProducer<P, W> {
         execution_engine: Arc<Eth1ExecutionEngine<P>>,
         attestation_agg_pool: Arc<AttestationAggPool<P, W>>,
         bls_to_execution_change_pool: Arc<BlsToExecutionChangePool>,
+        randao_commitment_registration_pool: Arc<RandaoCommitmentRegistrationPool>,
+        hash_chain_store: Arc<HashChainStore>,
         sync_committee_agg_pool: Arc<SyncCommitteeAggPool<P, W>>,
         payload_attestation_agg_pool: Arc<PayloadAttestationAggPool<P, W>>,
         metrics: Option<Arc<Metrics>>,
@@ -162,6 +170,8 @@ impl<P: Preset, W: Wait> BlockProducer<P, W> {
             execution_engine,
             attestation_agg_pool,
             bls_to_execution_change_pool,
+            randao_commitment_registration_pool,
+            hash_chain_store,
             sync_committee_agg_pool,
             payload_attestation_agg_pool,
             prepared_proposers: Mutex::new(HashMap::new()),
@@ -795,6 +805,8 @@ struct ProducerContext<P: Preset, W: Wait> {
     execution_engine: Arc<Eth1ExecutionEngine<P>>,
     attestation_agg_pool: Arc<AttestationAggPool<P, W>>,
     bls_to_execution_change_pool: Arc<BlsToExecutionChangePool>,
+    randao_commitment_registration_pool: Arc<RandaoCommitmentRegistrationPool>,
+    hash_chain_store: Arc<HashChainStore>,
     sync_committee_agg_pool: Arc<SyncCommitteeAggPool<P, W>>,
     payload_attestation_agg_pool: Arc<PayloadAttestationAggPool<P, W>>,
     prepared_proposers: Mutex<HashMap<ValidatorIndex, ExecutionAddress>>,
@@ -1010,9 +1022,6 @@ impl<P: Preset, W: Wait> BlockBuildContext<P, W> {
         let phase = self.beacon_state.phase();
 
         let result = match phase {
-            Phase::Eip8321 => {
-                anyhow::bail!("EIP-8321 proposal needs validator hash-chain secret management")
-            }
             Phase::Phase0 => BeaconBlock::from(Hc::new(Phase0BeaconBlock {
                 slot,
                 proposer_index,
@@ -1103,7 +1112,7 @@ impl<P: Preset, W: Wait> BlockBuildContext<P, W> {
                     blob_kzg_commitments: ContiguousList::default(),
                 },
             })),
-            Phase::Electra | Phase::Fulu | Phase::Gloas | Phase::Heze => {
+            Phase::Electra | Phase::Fulu | Phase::Gloas | Phase::Heze | Phase::Eip8321 => {
                 // Store results in a vec to preserve insertion order and thus the results of the packing algorithm
                 let mut results: Vec<(
                     AttestationData,
@@ -1299,6 +1308,56 @@ impl<P: Preset, W: Wait> BlockBuildContext<P, W> {
                                     HezeSignedExecutionPayloadBid::default(),
                                 payload_attestations,
                                 parent_execution_requests,
+                            },
+                        }))
+                    }
+                    Phase::Eip8321 => {
+                        let (randao_reveal, hash_chain_reveal) =
+                            self.eip8321_randao_reveals(proposer_index, randao_reveal)?;
+
+                        let snapshot = self.producer_context.controller.snapshot();
+                        let parent_block = self.producer_context.controller.head_block();
+
+                        let payload_attestations = if parent_block.value().to_header().message.slot
+                            == misc::previous_slot(slot)
+                        {
+                            self.prepare_payload_attestations().await?.into()
+                        } else {
+                            ProgressiveList::default()
+                        };
+
+                        let parent_execution_requests = if snapshot.should_build_on_full(slot) {
+                            snapshot
+                                .cached_execution_payload_envelope_by_root(parent_root)
+                                .ok_or_else(|| anyhow!("no cached payload envelope"))
+                                .map(|payload| payload.message.execution_requests.clone())
+                                .unwrap_or_default()
+                        } else {
+                            GloasExecutionRequests::default()
+                        };
+
+                        BeaconBlock::from(Hc::new(Eip8321BeaconBlock {
+                            slot,
+                            proposer_index,
+                            parent_root,
+                            state_root,
+                            body: Eip8321BeaconBlockBody {
+                                randao_reveal,
+                                graffiti,
+                                proposer_slashings: proposer_slashings.into(),
+                                attester_slashings: self.prepare_attester_slashings_gloas().await,
+                                attestations: attestations.map(Into::into).into(),
+                                voluntary_exits: voluntary_exits.into(),
+                                sync_aggregate,
+                                bls_to_execution_changes: bls_to_execution_changes.into(),
+                                signed_execution_payload_bid:
+                                    Eip8321SignedExecutionPayloadBid::default(),
+                                payload_attestations,
+                                parent_execution_requests,
+                                hash_chain_reveal,
+                                randao_commitment_registrations: self
+                                    .prepare_randao_commitment_registrations()
+                                    .await,
                             },
                         }))
                     }
@@ -1940,6 +1999,102 @@ impl<P: Preset, W: Wait> BlockBuildContext<P, W> {
         })
     }
 
+    /// The `(randao_reveal, hash_chain_reveal)` pairing for an EIP-8321 block.
+    ///
+    /// EIP-8321 keeps both paths alive, and which one applies is decided by the state being
+    /// proposed against — **not** by whether this node has seen its own registration land
+    /// somewhere. The spec is explicit that a validator must keep producing legacy BLS
+    /// reveals until `randao_commitments[index]` is non-zero in that state, because a block
+    /// including the registration can still be orphaned.
+    ///
+    /// Unregistered: the BLS signature stands and the hash-chain reveal is empty, which is
+    /// exactly what `verify_bls_randao_reveal` requires.
+    ///
+    /// Registered: the hash-chain reveal replaces the signature, so `randao_reveal` becomes
+    /// the point at infinity and the reveal is the preimage of the stored commitment.
+    fn eip8321_randao_reveals(
+        &self,
+        proposer_index: ValidatorIndex,
+        bls_randao_reveal: SignatureBytes,
+    ) -> Result<(SignatureBytes, H256)> {
+        let BeaconState::Eip8321(state) = self.beacon_state.as_ref() else {
+            return Ok((bls_randao_reveal, H256::zero()));
+        };
+
+        // Fully qualified: `Itertools::get` is in scope and shadows the inherent method.
+        let commitment =
+            *ssz::SszList::get(&state.randao_commitments, proposer_index)?;
+
+        if commitment.is_zero() {
+            return Ok((bls_randao_reveal, H256::zero()));
+        }
+
+        let reveal = self
+            .producer_context
+            .hash_chain_store
+            .reveal_for(proposer_index, commitment)
+            .ok_or_else(|| {
+                anyhow!(
+                    "no hash-chain reveal held for the commitment in state (validator: \
+                     {proposer_index}, commitment: {commitment:?}); the chain is missing or \
+                     exhausted, and this validator index can no longer propose"
+                )
+            })?;
+
+        Ok((SignatureBytes::empty(), reveal))
+    }
+
+    /// Registrations from the pool that are still valid against the state being proposed
+    /// against, capped at `MAX_RANDAO_COMMITMENT_REGISTRATIONS`.
+    ///
+    /// Each candidate is applied to a throwaway copy of the state in turn, which is both how
+    /// block processing will validate them and what makes two registrations for the same
+    /// validator in one block impossible: the first pushes a pending entry, so the second
+    /// fails the already-pending check.
+    async fn prepare_randao_commitment_registrations(
+        &self,
+    ) -> ProgressiveList<SignedRandaoCommitmentRegistration> {
+        let BeaconState::Eip8321(state) = self.beacon_state.as_ref() else {
+            return ProgressiveList::default();
+        };
+
+        let registrations = self
+            .producer_context
+            .randao_commitment_registration_pool
+            .signed_randao_commitment_registrations()
+            .await
+            .map_err(|error| {
+                warn_with_peers!(
+                    "unable to retrieve RANDAO commitment registrations from operation pool: \
+                     {error:?}"
+                );
+            })
+            .unwrap_or_default();
+
+        let mut state_copy = state.clone();
+        let mut included = vec![];
+
+        for registration in registrations {
+            if included.len() >= P::MAX_RANDAO_COMMITMENT_REGISTRATIONS {
+                break;
+            }
+
+            if eip8321::process_randao_commitment_registration(
+                &self.producer_context.chain_config,
+                &self.producer_context.pubkey_cache,
+                &mut state_copy,
+                &registration,
+                SingleVerifier,
+            )
+            .is_ok()
+            {
+                included.push(registration);
+            }
+        }
+
+        ProgressiveList::try_from_iter(included).unwrap_or_default()
+    }
+
     async fn prepare_bls_to_execution_changes(
         &self,
     ) -> ContiguousList<SignedBlsToExecutionChange, P::MaxBlsToExecutionChanges> {
@@ -2105,11 +2260,6 @@ impl<P: Preset, W: Wait> BlockBuildContext<P, W> {
         let prev_randao = accessors::get_randao_mix(state, epoch);
 
         let payload_attributes = match state {
-            BeaconState::Eip8321(_) => {
-                anyhow::bail!(
-                    "EIP-8321 proposal generation is outside the consensus-vector implementation"
-                )
-            }
             BeaconState::Phase0(_) | BeaconState::Altair(_) => return Ok(None),
             BeaconState::Bellatrix(_) => PayloadAttributes::Bellatrix(PayloadAttributesV1 {
                 timestamp,
@@ -2248,79 +2398,107 @@ impl<P: Preset, W: Wait> BlockBuildContext<P, W> {
                     target_gas_limit,
                 })
             }
-            BeaconState::Heze(state) => {
-                let head_root = self.head_block_root;
-                let target_gas_limit = self.gas_limit()?;
-                let snapshot = self.producer_context.controller.snapshot();
-
-                let withdrawals = if snapshot.should_build_on_full(state.slot())
-                    && let Some(envelope) =
-                        snapshot.cached_execution_payload_envelope_by_root(head_root)
-                {
-                    debug_with_peers!(
-                        "applying parent execution payload from envelope for payload attributes \
-                         preparation (head slot: {}, head root: {head_root:?})",
-                        state.slot(),
-                    );
-
-                    let mut state_copy = state.clone();
-
-                    gloas::apply_parent_execution_payload(
-                        chain_config,
-                        &self.producer_context.pubkey_cache,
-                        &mut state_copy,
-                        &envelope.message.execution_requests,
-                    )?;
-
-                    gloas::get_expected_withdrawals(&state_copy)?.0
-                } else if state.latest_execution_payload_bid().block_hash()
-                    == state.latest_block_hash()
-                {
-                    debug_with_peers!(
-                        "fork boundary case for payload attributes preparation \
-                            (head slot: {}, head root: {head_root:?})",
-                        state.slot(),
-                    );
-
-                    gloas::get_expected_withdrawals(state)?.0
-                } else {
-                    debug_with_peers!(
-                        "using expected withdrawals from the beacon state for payload attributes preparation, \
-                         falling back to direct state access (head slot: {}, head root: {head_root:?})",
-                        state.slot(),
-                    );
-
-                    state
-                        .payload_expected_withdrawals()
-                        .into_iter()
-                        .copied()
-                        .collect()
-                };
-
-                let withdrawals = withdrawals
-                    .into_iter()
-                    .map_into()
-                    .pipe(ContiguousList::try_from_iter)?;
-
-                PayloadAttributes::Heze(PayloadAttributesV5 {
-                    timestamp,
-                    prev_randao,
-                    suggested_fee_recipient,
-                    withdrawals,
-                    parent_beacon_block_root: state.latest_block_header().hash_tree_root(),
-                    slot_number: state.slot(),
-                    target_gas_limit,
-                    inclusion_list_transactions: self
-                        .producer_context
-                        .controller
-                        .snapshot()
-                        .inclusion_list_transactions_for_payload(state, false)
-                        .pipe(ContiguousList::try_from_iter)?,
-                })
-            }
+            BeaconState::Heze(state) => PayloadAttributes::Heze(self.payload_attributes_v5(
+                chain_config,
+                state,
+                timestamp,
+                prev_randao,
+                suggested_fee_recipient,
+            )?),
+            // EIP-8321 changes only the RANDAO reveal, so the payload attributes are
+            // built exactly as in Heze.
+            BeaconState::Eip8321(state) => PayloadAttributes::Eip8321(self.payload_attributes_v5(
+                chain_config,
+                state,
+                timestamp,
+                prev_randao,
+                suggested_fee_recipient,
+            )?),
         };
 
         Ok(Some(payload_attributes))
+    }
+
+    /// Payload attributes shared by every post-Gloas ePBS phase that uses
+    /// `PayloadAttributesV5`.
+    ///
+    /// Heze and EIP-8321 build these identically — EIP-8321 changes only the RANDAO
+    /// reveal — so the body lives here rather than being duplicated per phase.
+    fn payload_attributes_v5(
+        &self,
+        chain_config: &ChainConfig,
+        state: &(impl PostGloasBeaconState<P> + Clone),
+        timestamp: UnixSeconds,
+        prev_randao: H256,
+        suggested_fee_recipient: ExecutionAddress,
+    ) -> Result<PayloadAttributesV5<P>> {
+        let head_root = self.head_block_root;
+        let target_gas_limit = self.gas_limit()?;
+        let snapshot = self.producer_context.controller.snapshot();
+
+        let withdrawals = if snapshot.should_build_on_full(state.slot())
+            && let Some(envelope) = snapshot.cached_execution_payload_envelope_by_root(head_root)
+        {
+            debug_with_peers!(
+                "applying parent execution payload from envelope for payload attributes \
+                 preparation (head slot: {}, head root: {head_root:?})",
+                state.slot(),
+            );
+
+            let mut state_copy = state.clone();
+
+            gloas::apply_parent_execution_payload(
+                chain_config,
+                &self.producer_context.pubkey_cache,
+                &mut state_copy,
+                &envelope.message.execution_requests,
+            )?;
+
+            gloas::get_expected_withdrawals(&state_copy)?.0
+        } else if state.latest_execution_payload_bid().block_hash() == state.latest_block_hash() {
+            debug_with_peers!(
+                "fork boundary case for payload attributes preparation \
+                    (head slot: {}, head root: {head_root:?})",
+                state.slot(),
+            );
+
+            gloas::get_expected_withdrawals(state)?.0
+        } else {
+            debug_with_peers!(
+                "using expected withdrawals from the beacon state for payload attributes preparation, \
+                 falling back to direct state access (head slot: {}, head root: {head_root:?})",
+                state.slot(),
+            );
+
+            state
+                .payload_expected_withdrawals()
+                .into_iter()
+                .copied()
+                .collect()
+        };
+
+        let withdrawals = withdrawals
+            .into_iter()
+            .map_into()
+            .pipe(ContiguousList::try_from_iter)?;
+
+        Ok(PayloadAttributesV5 {
+            timestamp,
+            prev_randao,
+            suggested_fee_recipient,
+            withdrawals,
+            parent_beacon_block_root: state.latest_block_header().hash_tree_root(),
+            slot_number: state.slot(),
+            target_gas_limit,
+            // Deliberately a fresh snapshot rather than the one above, preserving the
+            // behaviour this was extracted from.
+            inclusion_list_transactions: self
+                .producer_context
+                .controller
+                .snapshot()
+                .inclusion_list_transactions_for_payload(state, false)
+                .pipe(ContiguousList::try_from_iter)?,
+        })
     }
 
     #[instrument(skip_all, level = "debug")]

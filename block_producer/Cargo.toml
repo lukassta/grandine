@@ -27,6 +27,7 @@ keymanager = { workspace = true }
 logging ={ workspace = true }
 operation_pools = { workspace = true }
 prometheus_metrics = { workspace = true }
+randao_chain = { workspace = true }
 pubkey_cache = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }

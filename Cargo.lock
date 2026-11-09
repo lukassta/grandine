@@ -2719,6 +2719,7 @@ dependencies = [
  "operation_pools",
  "prometheus_metrics",
  "pubkey_cache",
+ "randao_chain",
  "reqwest 0.13.2",
  "serde",
  "serde_utils",
@@ -6727,6 +6728,7 @@ dependencies = [
 name = "hashing"
 version = "0.0.0"
 dependencies = [
+ "blake3",
  "ethereum-types",
  "generic-array 0.14.7",
  "hex-literal 1.1.0",
@@ -7152,6 +7154,7 @@ dependencies = [
  "predefined_chains",
  "prometheus_metrics",
  "pubkey_cache",
+ "randao_chain",
  "reqwest 0.13.2",
  "scc 3.7.0",
  "serde",
@@ -12340,6 +12343,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "randao_chain"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "hashing",
+ "rand 0.8.6",
+ "types",
+]
+
+[[package]]
 name = "range-set-blaze"
 version = "0.1.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13260,6 +13273,7 @@ dependencies = [
  "prometheus-client",
  "prometheus_metrics",
  "pubkey_cache",
+ "randao_chain",
  "rayon",
  "reqwest 0.13.2",
  "reth-libmdbx",
@@ -17452,6 +17466,7 @@ dependencies = [
  "prometheus_metrics",
  "pubkey_cache",
  "rand 0.8.6",
+ "randao_chain",
  "rayon",
  "reqwest 0.13.2",
  "scc 3.7.0",
