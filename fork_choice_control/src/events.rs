@@ -1186,6 +1186,7 @@ pub enum CombinedPayloadAttributesEventData {
     Fulu(PayloadAttributesEventDataV3),
     Gloas(PayloadAttributesEventDataV4),
     Heze(PayloadAttributesEventDataV4),
+    Eip8321(PayloadAttributesEventDataV4),
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -1384,6 +1385,9 @@ impl<P: Preset> From<PayloadAttributes<P>> for CombinedPayloadAttributesEventDat
             }
             PayloadAttributes::Heze(payload_attributes_v5) => {
                 Self::Heze(payload_attributes_v5.into())
+            }
+            PayloadAttributes::Eip8321(payload_attributes_v5) => {
+                Self::Eip8321(payload_attributes_v5.into())
             }
         }
     }

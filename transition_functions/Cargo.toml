@@ -10,6 +10,7 @@ workspace = true
 anyhow = { workspace = true }
 arithmetic = { workspace = true }
 bit_field = { workspace = true }
+blake3 = { workspace = true }
 bls = { workspace = true }
 derive_more = { workspace = true }
 enum-iterator = { workspace = true }

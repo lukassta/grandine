@@ -139,7 +139,9 @@ pub fn epoch_report<P: Preset>(
 
     // Do the rest of epoch processing to leave the state valid for further transitions.
     // This way it can be used to calculate statistics for multiple epochs in a row.
-    unphased::process_eth1_data_reset(state)?;
+    if let Some(legacy) = state.eth1_deposits_mut() {
+        unphased::process_eth1_data_reset(legacy)?;
+    }
     process_effective_balance_updates(state)?;
     unphased::process_slashings_reset(state)?;
     unphased::process_randao_mixes_reset(state)?;
@@ -237,7 +239,7 @@ pub fn process_registry_updates<P: Preset>(
 pub fn process_pending_deposits<P: Preset>(
     config: &Config,
     pubkey_cache: &PubkeyCache,
-    state: &mut impl PostElectraBeaconState<P>,
+    state: &mut impl types::traits::DepositRequestsStartIndexState<P>,
 ) -> Result<()> {
     let next_epoch = get_current_epoch(state).try_add(1)?;
     let available_for_processing = state

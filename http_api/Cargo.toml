@@ -39,6 +39,7 @@ operation_pools = { workspace = true }
 p2p = { workspace = true }
 parse-display = { workspace = true }
 prometheus_metrics = { workspace = true }
+randao_chain = { workspace = true }
 serde = { workspace = true }
 serde-aux = { workspace = true }
 serde_json = { workspace = true }

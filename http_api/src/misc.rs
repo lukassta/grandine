@@ -36,6 +36,7 @@ use types::{
         },
         primitives::{Blob, KzgProof},
     },
+    eip8321::containers::SignedBeaconBlock as Eip8321SignedBeaconBlock,
     electra::containers::{
         SignedAggregateAndProof as ElectraSignedAggregateAndProof,
         SignedBeaconBlock as ElectraSignedBeaconBlock,
@@ -205,6 +206,7 @@ impl<P: Preset> From<WithBlobsAndMev<BeaconBlock<P>, P>> for APIBlock<BeaconBloc
             }),
             BeaconBlock::Gloas(block) => Self::Other(block.into()),
             BeaconBlock::Heze(block) => Self::Other(block.into()),
+            BeaconBlock::Eip8321(block) => Self::Other(block.into()),
         }
     }
 }
@@ -259,6 +261,9 @@ impl<P: Preset> From<WithBlobsAndMev<ValidatorBlindedBlock<P>, P>>
                 BeaconBlock::Heze(block) => {
                     Self::Other(ValidatorBlindedBlock::BeaconBlock(block.into()))
                 }
+                BeaconBlock::Eip8321(block) => {
+                    Self::Other(ValidatorBlindedBlock::BeaconBlock(block.into()))
+                }
             },
         }
     }
@@ -303,10 +308,12 @@ impl<'de, P: Preset> DeserializeSeed<'de> for SignedAggregateAndProofListFromPha
                 >::deserialize(deserializer)?
                 .map(Into::into)
                 .map(Arc::new),
-                Phase::Gloas | Phase::Heze => ContiguousList::<
+                Phase::Gloas | Phase::Heze | Phase::Eip8321 => ContiguousList::<
                     GloasSignedAggregateAndProof<P>,
                     TargetAggregatorsPerCommittee,
-                >::deserialize(deserializer)?
+                >::deserialize(
+                    deserializer
+                )?
                 .map(Into::into)
                 .map(Arc::new),
             };
@@ -374,7 +381,7 @@ impl<'de, P: Preset> DeserializeSeed<'de> for SingleApiAttestationListPhaseDeser
                 )?
                 .map(Into::into)
             }
-            Phase::Electra | Phase::Fulu | Phase::Gloas | Phase::Heze => {
+            Phase::Electra | Phase::Fulu | Phase::Gloas | Phase::Heze | Phase::Eip8321 => {
                 ContiguousList::<SingleAttestation, P::MaxAttestersPerSlot>::deserialize(
                     deserializer,
                 )?
@@ -411,9 +418,11 @@ impl<'de, P: Preset> DeserializeSeed<'de> for SignedExecutionPayloadBidPhaseDese
             Phase::Gloas => GloasSignedExecutionPayloadBid::deserialize(deserializer)
                 .map(SignedExecutionPayloadBid::Gloas)
                 .map(Arc::new),
-            Phase::Heze => HezeSignedExecutionPayloadBid::deserialize(deserializer)
-                .map(SignedExecutionPayloadBid::Heze)
-                .map(Arc::new),
+            Phase::Heze | Phase::Eip8321 => {
+                HezeSignedExecutionPayloadBid::deserialize(deserializer)
+                    .map(SignedExecutionPayloadBid::Heze)
+                    .map(Arc::new)
+            }
             Phase::Phase0
             | Phase::Altair
             | Phase::Bellatrix
@@ -444,7 +453,7 @@ impl<P: Preset> SszRead<Phase> for SingleApiAttestation<P> {
             Phase::Phase0 | Phase::Altair | Phase::Bellatrix | Phase::Capella | Phase::Deneb => {
                 Self::Phase0(SszReadDefault::from_ssz_default(bytes)?)
             }
-            Phase::Electra | Phase::Fulu | Phase::Gloas | Phase::Heze => {
+            Phase::Electra | Phase::Fulu | Phase::Gloas | Phase::Heze | Phase::Eip8321 => {
                 Self::Electra(SszReadDefault::from_ssz_default(bytes)?)
             }
         };
@@ -505,7 +514,7 @@ impl<'de, P: Preset> DeserializeSeed<'de> for PayloadAttestationMessageListPhase
             | Phase::Deneb
             | Phase::Electra
             | Phase::Fulu => return Err(D::Error::custom("invalid phase")),
-            Phase::Gloas | Phase::Heze => {
+            Phase::Gloas | Phase::Heze | Phase::Eip8321 => {
                 ContiguousList::<PayloadAttestationMessage, P::PtcSize>::deserialize(deserializer)?
                     .map(Arc::new)
             }
@@ -531,7 +540,7 @@ impl<'de, P: Preset> DeserializeSeed<'de> for SignedBlindedBeaconPhaseDeserializ
             Phase::Deneb => DenebSignedBlindedBeaconBlock::deserialize(deserializer)?.into(),
             Phase::Electra => ElectraSignedBlindedBeaconBlock::deserialize(deserializer)?.into(),
             Phase::Fulu => FuluSignedBlindedBeaconBlock::deserialize(deserializer)?.into(),
-            Phase::Gloas | Phase::Heze => {
+            Phase::Gloas | Phase::Heze | Phase::Eip8321 => {
                 return Err(D::Error::custom(
                     "there is no blinded block in Gloas or Heze",
                 ));
@@ -572,6 +581,7 @@ impl<'de, P: Preset> DeserializeSeed<'de> for SignedAPIBlockPhaseDeserializer<P>
             Phase::Fulu => SignedFuluBlockWithBlobs::deserialize(deserializer)?.into(),
             Phase::Gloas => GloasSignedBeaconBlock::deserialize(deserializer)?.into(),
             Phase::Heze => HezeSignedBeaconBlock::deserialize(deserializer)?.into(),
+            Phase::Eip8321 => Eip8321SignedBeaconBlock::deserialize(deserializer)?.into(),
         };
 
         Ok(Box::new(result))
@@ -593,6 +603,7 @@ pub enum SignedAPIBlock<P: Preset> {
     Fulu(SignedFuluBlockWithBlobs<P>),
     Gloas(GloasSignedBeaconBlock<P>),
     Heze(HezeSignedBeaconBlock<P>),
+    Eip8321(Eip8321SignedBeaconBlock<P>),
 }
 
 impl<P: Preset> SignedAPIBlock<P> {
@@ -607,6 +618,7 @@ impl<P: Preset> SignedAPIBlock<P> {
             Self::Fulu(block) => block.signed_block.message.slot,
             Self::Gloas(block) => block.message.slot,
             Self::Heze(block) => block.message.slot,
+            Self::Eip8321(block) => block.message.slot,
         }
     }
 
@@ -657,6 +669,7 @@ impl<P: Preset> SignedAPIBlock<P> {
             }
             Self::Gloas(block) => (block.into(), None, None),
             Self::Heze(block) => (block.into(), None, None),
+            Self::Eip8321(block) => (block.into(), None, None),
         }
     }
 }
@@ -674,6 +687,7 @@ impl<P: Preset> SszSize for SignedAPIBlock<P> {
         SignedFuluBlockWithBlobs::<P>::SIZE,
         GloasSignedBeaconBlock::<P>::SIZE,
         HezeSignedBeaconBlock::<P>::SIZE,
+        Eip8321SignedBeaconBlock::<P>::SIZE,
     ]);
 }
 
@@ -689,6 +703,7 @@ impl<P: Preset> SszRead<Phase> for SignedAPIBlock<P> {
             Phase::Fulu => Self::Fulu(SszReadDefault::from_ssz_default(bytes)?),
             Phase::Gloas => Self::Gloas(SszReadDefault::from_ssz_default(bytes)?),
             Phase::Heze => Self::Heze(SszReadDefault::from_ssz_default(bytes)?),
+            Phase::Eip8321 => Self::Eip8321(SszReadDefault::from_ssz_default(bytes)?),
         };
 
         Ok(api_block)

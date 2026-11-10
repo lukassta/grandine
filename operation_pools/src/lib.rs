@@ -11,6 +11,10 @@ pub use crate::{
     messages::{PoolToLivenessMessage, PoolToP2pMessage},
     misc::{Origin, PoolAdditionOutcome, PoolRejectionReason},
     payload_attestation_agg_pool::Manager as PayloadAttestationAggPool,
+    randao_commitment_registration_pool::{
+        RandaoCommitmentRegistrationPool,
+        Service as RandaoCommitmentRegistrationPoolService,
+    },
     sync_committee_agg_pool::Manager as SyncCommitteeAggPool,
 };
 
@@ -39,6 +43,7 @@ mod bls_to_execution_change_pool;
 mod manager;
 mod messages;
 mod misc;
+mod randao_commitment_registration_pool;
 
 mod payload_attestation_agg_pool {
     pub use manager::Manager;

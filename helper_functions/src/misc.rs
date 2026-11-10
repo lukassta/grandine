@@ -480,11 +480,13 @@ pub fn compute_timestamp_at_slot<P: Preset>(
     state: &(impl BeaconState<P> + ?Sized),
     slot: Slot,
 ) -> Result<UnixSeconds> {
-    let slots_since_genesis = slot.try_sub(GENESIS_SLOT)?;
+    // Not `slots_since_genesis * slot_duration_ms`: EIP-8198 shortens the slot duration
+    // at the Heze fork, so the offset from genesis accumulates piecewise.
+    let since_genesis = config.duration_from_genesis_at_slot::<P>(slot);
 
     state
         .genesis_time()
-        .try_add(slots_since_genesis.try_mul(config.slot_duration_ms.as_secs())?)
+        .try_add(since_genesis.as_secs())
         .map_err(Into::into)
 }
 
@@ -756,7 +758,9 @@ pub fn construct_blob_sidecar<P: Preset>(
         SignedBeaconBlock::Fulu(block) => {
             electra_kzg_commitment_inclusion_proof(&block.message.body, index)?
         }
-        SignedBeaconBlock::Gloas(_) | SignedBeaconBlock::Heze(_) => {
+        SignedBeaconBlock::Gloas(_)
+        | SignedBeaconBlock::Heze(_)
+        | SignedBeaconBlock::Eip8321(_) => {
             let message = block.message();
 
             return Err(Error::BlobsForPostGloasBlock {

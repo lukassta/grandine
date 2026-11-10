@@ -158,7 +158,9 @@ pub fn process_registry_updates<P: Preset>(
     Ok(())
 }
 
-pub fn process_eth1_data_reset<P: Preset>(state: &mut impl BeaconState<P>) -> Result<()> {
+pub fn process_eth1_data_reset<P: Preset>(
+    state: &mut (impl types::traits::Eth1DepositState<P> + ?Sized),
+) -> Result<()> {
     let next_epoch = get_next_epoch(state)?;
 
     // > Reset eth1 data votes

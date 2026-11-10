@@ -25,10 +25,12 @@ use keymanager::KeyManager;
 use liveness_tracker::LivenessTracker;
 use once_cell::sync::OnceCell;
 use operation_pools::{
-    AttestationAggPool, BlsToExecutionChangePool, PayloadAttestationAggPool, SyncCommitteeAggPool,
+    AttestationAggPool, BlsToExecutionChangePool, PayloadAttestationAggPool,
+    RandaoCommitmentRegistrationPool, SyncCommitteeAggPool,
 };
 use p2p::{NetworkConfig, SubnetService, SyncToApi};
 use pubkey_cache::PubkeyCache;
+use randao_chain::HashChainStore;
 use reqwest::Client;
 use scc::HashMap as SccHashMap;
 use signer::{KeyOrigin, Signer, Web3SignerConfig};
@@ -283,9 +285,12 @@ impl<P: Preset> Context<P> {
             BlsToExecutionChangePool::new(
                 controller.clone_arc(),
                 event_channels.clone_arc(),
-                pool_to_p2p_tx,
+                pool_to_p2p_tx.clone(),
                 None,
             );
+
+        let (randao_commitment_registration_pool, _randao_commitment_registration_pool_service) =
+            RandaoCommitmentRegistrationPool::new(controller.clone_arc(), pool_to_p2p_tx);
 
         let liveness_tracker = LivenessTracker::new(
             controller.clone_arc(),
@@ -303,6 +308,8 @@ impl<P: Preset> Context<P> {
             execution_engine,
             attestation_agg_pool.clone_arc(),
             bls_to_execution_change_pool.clone_arc(),
+            randao_commitment_registration_pool.clone_arc(),
+            Arc::new(HashChainStore::new()),
             sync_committee_agg_pool.clone_arc(),
             payload_attestation_agg_pool.clone_arc(),
             None,
@@ -339,6 +346,8 @@ impl<P: Preset> Context<P> {
             slashing_protector,
             payload_attestation_agg_pool.clone_arc(),
             sync_committee_agg_pool.clone_arc(),
+            randao_commitment_registration_pool.clone_arc(),
+            Arc::new(HashChainStore::new()),
             None,
             None,
             validator_channels,

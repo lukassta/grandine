@@ -43,6 +43,9 @@ impl<'block, P: Preset> SigningRequest<'block, P> {
             SigningMessage::ValidatorRegistration(_) => MessageType::ValidatorRegistration,
             SigningMessage::VoluntaryExit(_) => MessageType::VoluntaryExit,
             SigningMessage::ProposerPreferences(_) => MessageType::ProposerPreferences,
+            SigningMessage::RandaoCommitmentRegistration(_) => {
+                MessageType::RandaoCommitmentRegistration
+            }
         };
 
         Self {
@@ -76,6 +79,7 @@ enum MessageType {
     ValidatorRegistration,
     VoluntaryExit,
     ProposerPreferences,
+    RandaoCommitmentRegistration,
 }
 
 #[derive(Debug, Deserialize)]
@@ -109,6 +113,7 @@ mod tests {
                 "VALIDATOR_REGISTRATION",
                 "VOLUNTARY_EXIT",
                 "PROPOSER_PREFERENCES",
+                "RANDAO_COMMITMENT_REGISTRATION",
             ],
         );
     }

@@ -1,0 +1,13 @@
+[package]
+name = 'randao_chain'
+edition = { workspace = true }
+authors = ["Grandine <info@grandine.io>"]
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+hashing = { workspace = true }
+rand = { workspace = true }
+types = { workspace = true }

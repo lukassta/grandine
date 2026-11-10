@@ -150,6 +150,43 @@ fn get_index_for_new_builder<P: Preset>(state: &impl PostGloasBeaconState<P>) ->
         .unwrap_or_else(|| state.builders().len_u64())
 }
 
+pub fn slash_validator<P: Preset>(
+    config: &Config,
+    state: &mut impl PostGloasBeaconState<P>,
+    slashed_index: types::phase0::primitives::ValidatorIndex,
+    whistleblower_index: Option<types::phase0::primitives::ValidatorIndex>,
+    kind: types::nonstandard::SlashingKind,
+    slot_report: impl crate::slot_report::SlotReport,
+) -> Result<()> {
+    crate::electra::slash_validator(
+        config,
+        state,
+        slashed_index,
+        whistleblower_index,
+        kind,
+        slot_report,
+    )?;
+
+    // > Remove pending builder payments for blocks proposed by the slashed validator
+    //
+    // Collect the indices first.
+    // Writing only to matching elements keeps the rest of the tree cached.
+    let payment_indices = (0..)
+        .zip(state.builder_pending_payments())
+        .filter(|(_, payment)| payment.proposer_index == slashed_index)
+        .map(|(payment_index, _)| payment_index)
+        .collect::<Vec<u64>>();
+
+    for payment_index in payment_indices {
+        *state
+            .builder_pending_payments_mut()
+            .mod_index_mut(payment_index) =
+            types::gloas::containers::BuilderPendingPayment::default();
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use types::{

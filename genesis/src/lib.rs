@@ -77,6 +77,7 @@ use types::{
 
 pub struct Incremental<'config, P: Preset> {
     config: &'config Config,
+    target_phase: Phase,
     beacon_state: BeaconState<P>,
     deposit_tree: DepositTree,
 }
@@ -87,7 +88,8 @@ impl<'config, P: Preset> Incremental<'config, P> {
     #[expect(clippy::too_many_lines)]
     pub fn new(config: &'config Config) -> Self {
         let slot = GENESIS_SLOT;
-        let phase = config.phase_at_slot::<P>(slot);
+        let target_phase = config.phase_at_slot::<P>(slot);
+        let phase = target_phase.min(Phase::Gloas);
         let version = config.version(phase);
 
         let fork = Fork {
@@ -107,6 +109,15 @@ impl<'config, P: Preset> Incremental<'config, P> {
         };
 
         let body_root = match phase {
+            Phase::Eip8321 => types::eip8321::containers::BeaconBlockBody::<P> {
+                signed_execution_payload_bid:
+                    types::eip8321::containers::SignedExecutionPayloadBid {
+                        message: heze_execution_payload_bid.clone(),
+                        ..Default::default()
+                    },
+                ..Default::default()
+            }
+            .hash_tree_root(),
             Phase::Phase0 => Phase0BeaconBlockBody::<P>::default().hash_tree_root(),
             Phase::Altair => AltairBeaconBlockBody::<P>::default().hash_tree_root(),
             Phase::Bellatrix => BellatrixBeaconBlockBody::<P>::default().hash_tree_root(),
@@ -139,6 +150,14 @@ impl<'config, P: Preset> Incremental<'config, P> {
         };
 
         let beacon_state = match phase {
+            Phase::Eip8321 => types::eip8321::beacon_state::BeaconState {
+                slot,
+                fork,
+                latest_block_header,
+                latest_execution_payload_bid: heze_execution_payload_bid,
+                ..Default::default()
+            }
+            .into(),
             Phase::Phase0 => Phase0BeaconState {
                 slot,
                 fork,
@@ -203,7 +222,6 @@ impl<'config, P: Preset> Incremental<'config, P> {
                 slot,
                 fork,
                 latest_block_header,
-                deposit_requests_start_index: UNSET_DEPOSIT_REQUESTS_START_INDEX,
                 latest_execution_payload_bid: heze_execution_payload_bid,
                 ..HezeBeaconState::default()
             }
@@ -212,6 +230,7 @@ impl<'config, P: Preset> Incremental<'config, P> {
 
         Self {
             config,
+            target_phase,
             beacon_state,
             deposit_tree: DepositTree::default(),
         }
@@ -233,7 +252,11 @@ impl<'config, P: Preset> Incremental<'config, P> {
         deposit_index: DepositIndex,
     ) -> Result<()> {
         let is_post_electra = self.beacon_state.is_post_electra();
-        let eth1_data = self.beacon_state.eth1_data_mut();
+        let eth1_data = self
+            .beacon_state
+            .eth1_deposits_mut()
+            .expect("genesis builder uses legacy deposits before its final upgrade")
+            .eth1_data_mut();
 
         eth1_data.deposit_root = self
             .deposit_tree
@@ -322,16 +345,26 @@ impl<'config, P: Preset> Incremental<'config, P> {
         let Self {
             mut beacon_state,
             deposit_tree,
-            ..
+            config,
+            target_phase,
         } = self;
 
-        beacon_state.eth1_data_mut().block_hash = eth1_block_hash;
+        beacon_state
+            .eth1_deposits_mut()
+            .expect("genesis builder upgrades only after assembling deposits")
+            .eth1_data_mut()
+            .block_hash = eth1_block_hash;
 
         // > [New in Fulu:EIP6110] The Eth1 bridge transition is already complete at a
         // > Fulu (or later) genesis, so mark its completion.
-        if let Some(state) = beacon_state.post_fulu_mut() {
-            let deposit_count = state.eth1_data().deposit_count;
-            *state.deposit_requests_start_index_mut() = deposit_count;
+        match &mut beacon_state {
+            BeaconState::Fulu(state) => {
+                state.deposit_requests_start_index = state.eth1_data.deposit_count;
+            }
+            BeaconState::Gloas(state) => {
+                state.deposit_requests_start_index = state.eth1_data.deposit_count;
+            }
+            _ => {}
         }
 
         // [New in Gloas:EIP7732] There is no execution payload envelope for the genesis block, so
@@ -356,8 +389,41 @@ impl<'config, P: Preset> Incremental<'config, P> {
 
         // > [New in Bellatrix] Initialize the execution payload header
         // > If empty, will initialize a chain that has not yet gone through the Merge transition
-        let beacon_state = beacon_state.with_execution_payload_header(execution_payload_header)?;
-
+        let mut beacon_state =
+            beacon_state.with_execution_payload_header(execution_payload_header)?;
+        if target_phase >= Phase::Heze {
+            let BeaconState::Gloas(pre) = beacon_state else {
+                anyhow::bail!("Heze genesis must be assembled from Gloas");
+            };
+            let mut post = helper_functions::fork::upgrade_to_heze(config, pre.as_ref().clone());
+            // Genesis has no preceding fork or block.
+            post.fork.previous_version = post.fork.current_version;
+            post.latest_block_header.body_root = types::heze::containers::BeaconBlockBody::<P> {
+                signed_execution_payload_bid: types::heze::containers::SignedExecutionPayloadBid {
+                    message: post.latest_execution_payload_bid.clone(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }
+            .hash_tree_root();
+            if target_phase == Phase::Eip8321 {
+                let mut upgraded = helper_functions::fork::upgrade_to_eip8321(config, post)?;
+                upgraded.fork.previous_version = upgraded.fork.current_version;
+                upgraded.latest_block_header.body_root =
+                    types::eip8321::containers::BeaconBlockBody::<P> {
+                        signed_execution_payload_bid:
+                            types::eip8321::containers::SignedExecutionPayloadBid {
+                                message: upgraded.latest_execution_payload_bid.clone(),
+                                ..Default::default()
+                            },
+                        ..Default::default()
+                    }
+                    .hash_tree_root();
+                beacon_state = upgraded.into();
+            } else {
+                beacon_state = post.into();
+            }
+        }
         Ok((beacon_state, deposit_tree))
     }
 }
@@ -411,6 +477,21 @@ enum GenesisTriggerError {
 /// <https://github.com/ethereum/consensus-specs/blob/2fa396f67df35df236b6aa6fe714a59ee1032dc8/specs/phase0/beacon-chain.md#genesis-block>
 #[must_use]
 pub fn beacon_block<P: Preset>(genesis_state: &BeaconState<P>) -> SignedBeaconBlock<P> {
+    if let BeaconState::Eip8321(state) = genesis_state {
+        return BeaconBlock::from(Hc::new(types::eip8321::containers::BeaconBlock {
+            body: types::eip8321::containers::BeaconBlockBody {
+                signed_execution_payload_bid:
+                    types::eip8321::containers::SignedExecutionPayloadBid {
+                        message: state.latest_execution_payload_bid.clone(),
+                        ..Default::default()
+                    },
+                ..Default::default()
+            },
+            ..Default::default()
+        }))
+        .with_state_root(genesis_state.hash_tree_root())
+        .with_zero_signature();
+    }
     let execution_payload_bid = match genesis_state {
         BeaconState::Gloas(state) => Some(ExecutionPayloadHeader::Gloas(
             state.latest_execution_payload_bid.clone(),
@@ -438,6 +519,9 @@ fn beacon_block_internal<P: Preset>(
 
     // Note that `BeaconBlock.body.eth1_data` is not set to `genesis_state.eth1_data()`.
     match phase {
+        Phase::Eip8321 => {
+            BeaconBlock::from(Hc::new(types::eip8321::containers::BeaconBlock::default()))
+        }
         Phase::Phase0 => BeaconBlock::from(Hc::new(Phase0BeaconBlock::default())),
         Phase::Altair => BeaconBlock::from(Hc::new(AltairBeaconBlock::default())),
         Phase::Bellatrix => BeaconBlock::from(Hc::new(BellatrixBeaconBlock::default())),
@@ -569,7 +653,7 @@ mod spec_tests {
         let expected_genesis_state = case.ssz::<_, BeaconState<Minimal>>(&config, "state");
 
         let execution_payload_header = match phase {
-            Phase::Phase0 | Phase::Altair | Phase::Gloas | Phase::Heze => {
+            Phase::Phase0 | Phase::Altair | Phase::Gloas | Phase::Heze | Phase::Eip8321 => {
                 assert!(!case.exists("execution_payload_header"));
                 None
             }

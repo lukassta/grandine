@@ -239,6 +239,25 @@ pub fn hash_32_64_256(a: [u8; 4], b: u64, c: H256) -> H256 {
     Sha256State::default().compress_single(block).output()
 }
 
+/// BLAKE3 v1, unkeyed, 32-byte output over the concatenation of `parts`.
+///
+/// EIP-8321 hashes with BLAKE3 for both the RANDAO hash chain and its accumulator. SSZ and
+/// the legacy BLS RANDAO path still use SHA-256, so this is deliberately separate from the
+/// `hash_*` functions above.
+///
+/// Shared by the consensus-side verification and the validator-side chain generation so the
+/// two cannot disagree about what a chain link is.
+#[must_use]
+pub fn blake3_parts(parts: &[&[u8]]) -> H256 {
+    let mut hasher = blake3::Hasher::new();
+
+    for part in parts {
+        hasher.update(part);
+    }
+
+    H256(*hasher.finalize().as_bytes())
+}
+
 // This function is only ever called with `PublicKeyBytes`,
 // but that can't be the type of the parameter due to a circular dependency.
 #[inline]

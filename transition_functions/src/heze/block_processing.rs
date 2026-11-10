@@ -1,6 +1,13 @@
+use crate::gloas::{
+    apply_attestation, process_attester_slashing, process_payload_attestation,
+    process_proposer_slashing, validate_attestation_with_verifier,
+};
+use crate::{capella, electra};
 use anyhow::{Result, ensure};
 use arithmetic::UsizeExt as _;
 use bls::traits::SignatureBytes as _;
+use helper_functions::accessors::initialize_shuffled_indices;
+use helper_functions::verifier::Triple;
 use helper_functions::{
     accessors::{self, get_beacon_proposer_index, get_current_epoch, get_randao_mix},
     error::SignatureKind,
@@ -11,7 +18,10 @@ use helper_functions::{
     verifier::{SingleVerifier, Verifier},
 };
 use pubkey_cache::PubkeyCache;
+#[cfg(not(target_os = "zkvm"))]
+use rayon::iter::ParallelIterator as _;
 use ssz::{Hc, SszHash as _, SszList as _};
+use typenum::Unsigned as _;
 use types::{
     config::Config,
     gloas::{
@@ -28,10 +38,17 @@ use types::{
     preset::Preset,
     traits::PostGloasBeaconState,
 };
+use types::{
+    phase0::primitives::Slot,
+    traits::{
+        BlockBodyWithBlsToExecutionChanges, BlockBodyWithGloasAttestations,
+        BlockBodyWithGloasAttesterSlashings, BlockBodyWithPayloadAttestations,
+    },
+};
 
 use crate::{
     altair,
-    gloas::{self, process_operations, process_withdrawals},
+    gloas::{self, process_withdrawals},
     unphased::{self, Error},
 };
 
@@ -98,6 +115,22 @@ pub fn process_block_for_gossip<P: Preset>(
     Ok(())
 }
 
+fn ensure_operation_count<P: Preset>(
+    kind: &'static str,
+    in_block: usize,
+    maximum: usize,
+) -> Result<()> {
+    ensure!(
+        in_block <= maximum,
+        Error::<P>::TooManyOperations {
+            kind,
+            maximum,
+            in_block
+        }
+    );
+    Ok(())
+}
+
 pub fn count_required_signatures<P: Preset>(block: &Hc<BeaconBlock<P>>) -> Result<usize> {
     altair::count_required_signatures(block)?
         .try_add(block.body.bls_to_execution_changes.len())?
@@ -134,7 +167,6 @@ pub fn custom_process_block<P: Preset>(
     )?;
 
     unphased::process_randao(config, pubkey_cache, state, &block.body, &mut verifier)?;
-    unphased::process_eth1_data(state, &block.body)?;
 
     // > [Modified in Gloas:EIP7732]
     process_operations(
@@ -369,6 +401,157 @@ pub fn process_execution_payload_bid<P: Preset>(
 
     // > Cache the signed execution payload bid
     state.latest_execution_payload_bid = signed_bid.message.clone();
+
+    Ok(())
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "Keep the specified consensus operation ordering explicit"
+)]
+fn process_operations<P: Preset, V: Verifier, B>(
+    config: &Config,
+    pubkey_cache: &PubkeyCache,
+    state: &mut impl PostGloasBeaconState<P>,
+    body: &B,
+    parent_slot: Slot,
+    mut verifier: V,
+    mut slot_report: impl SlotReport,
+) -> Result<()>
+where
+    B: BlockBodyWithGloasAttestations<P>
+        + BlockBodyWithGloasAttesterSlashings<P>
+        + BlockBodyWithBlsToExecutionChanges<P>
+        + BlockBodyWithPayloadAttestations<P>,
+{
+    // > [New in Gloas:EIP7688] Progressive lists are unbounded at the SSZ level.
+    // > Operation counts are validated during processing instead.
+    ensure_operation_count::<P>(
+        "proposer slashings",
+        body.proposer_slashings().len_usize(),
+        P::MaxProposerSlashings::USIZE,
+    )?;
+    ensure_operation_count::<P>(
+        "attester slashings",
+        body.attester_slashings().len_usize(),
+        P::MaxAttesterSlashingsElectra::USIZE,
+    )?;
+    ensure_operation_count::<P>(
+        "attestations",
+        body.attestations().len_usize(),
+        P::MaxAttestationsElectra::USIZE,
+    )?;
+    ensure_operation_count::<P>(
+        "voluntary exits",
+        body.voluntary_exits().len_usize(),
+        P::MaxVoluntaryExits::USIZE,
+    )?;
+    ensure_operation_count::<P>(
+        "BLS to execution changes",
+        body.bls_to_execution_changes().len_usize(),
+        P::MaxBlsToExecutionChanges::USIZE,
+    )?;
+    ensure_operation_count::<P>(
+        "payload attestations",
+        body.payload_attestations().len_usize(),
+        P::MaxPayloadAttestation::USIZE,
+    )?;
+
+    for proposer_slashing in body.proposer_slashings().iter().copied() {
+        process_proposer_slashing(
+            config,
+            pubkey_cache,
+            state,
+            proposer_slashing,
+            &mut verifier,
+            &mut slot_report,
+        )?;
+    }
+
+    for attester_slashing in body.attester_slashings() {
+        process_attester_slashing(
+            config,
+            pubkey_cache,
+            state,
+            attester_slashing,
+            &mut verifier,
+            &mut slot_report,
+        )?;
+    }
+
+    // TODO: update on https://github.com/ethereum/consensus-specs/blob/v1.5.0-alpha.1/specs/electra/beacon-chain.md#modified-process_attestation
+    // Parallel iteration with Rayon has some overhead, which is most noticeable when the active
+    // thread pool is busy. `ParallelIterator::collect` appears to wait for worker threads to become
+    // available even if the current thread is itself a worker thread. This tends to happen when
+    // verifying signatures for batches of blocks outside the state transition function.
+    // Fortunately, the other validations in `validate_attestation_with_verifier` take a negligible
+    // amount of time, so we can avoid the issue by running them sequentially.
+    if V::IS_NULL {
+        for attestation in body.attestations() {
+            validate_attestation_with_verifier(
+                config,
+                pubkey_cache,
+                state,
+                attestation,
+                &mut verifier,
+            )?;
+        }
+    } else {
+        initialize_shuffled_indices(state, body.attestations().iter())?;
+
+        let attestations = body.attestations().iter().collect::<Vec<_>>();
+        let triples = helper_functions::par_iter!(attestations)
+            .map(|attestation| {
+                let mut triple = Triple::default();
+
+                validate_attestation_with_verifier(
+                    config,
+                    pubkey_cache,
+                    state,
+                    attestation,
+                    &mut triple,
+                )?;
+
+                Ok(triple)
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        verifier.extend(triples, SignatureKind::Attestation)?;
+    }
+
+    for attestation in body.attestations() {
+        apply_attestation(config, state, attestation, parent_slot, &mut slot_report)?;
+    }
+
+    for voluntary_exit in body.voluntary_exits().iter().copied() {
+        electra::process_voluntary_exit(
+            config,
+            pubkey_cache,
+            state,
+            voluntary_exit,
+            &mut verifier,
+        )?;
+    }
+
+    for bls_to_execution_change in body.bls_to_execution_changes().iter().copied() {
+        capella::process_bls_to_execution_change(
+            config,
+            pubkey_cache,
+            state,
+            bls_to_execution_change,
+            &mut verifier,
+        )?;
+    }
+
+    for payload_attestation in body.payload_attestations() {
+        process_payload_attestation(
+            config,
+            pubkey_cache,
+            state,
+            payload_attestation,
+            &mut verifier,
+        )?;
+    }
 
     Ok(())
 }

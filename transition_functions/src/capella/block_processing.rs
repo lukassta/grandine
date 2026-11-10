@@ -228,7 +228,7 @@ fn process_execution_payload_for_gossip<P: Preset>(
 pub fn process_operations<P: Preset, V: Verifier>(
     config: &Config,
     pubkey_cache: &PubkeyCache,
-    state: &mut impl PostCapellaBeaconState<P>,
+    state: &mut (impl PostCapellaBeaconState<P> + types::traits::Eth1DepositState<P>),
     body: &(impl BlockBodyWithBlsToExecutionChanges<P> + PreElectraBeaconBlockBody<P>),
     mut verifier: V,
     mut slot_report: impl SlotReport,

@@ -1,9 +1,12 @@
+use std::sync::Arc;
+
 use eth2_libp2p::GossipId;
 use futures::channel::mpsc::UnboundedSender;
 use logging::debug_with_peers;
 use serde::Serialize;
 use types::{
     altair::containers::SyncCommitteeMessage, capella::containers::SignedBlsToExecutionChange,
+    eip8321::containers::SignedRandaoCommitmentRegistration,
 };
 
 use crate::misc::PoolRejectionReason;
@@ -14,6 +17,7 @@ pub enum PoolToP2pMessage {
     Ignore(GossipId),
     Reject(GossipId, PoolRejectionReason),
     PublishSignedBlsToExecutionChange(Box<SignedBlsToExecutionChange>),
+    PublishSignedRandaoCommitmentRegistration(Arc<SignedRandaoCommitmentRegistration>),
 }
 
 impl PoolToP2pMessage {

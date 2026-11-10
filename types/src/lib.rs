@@ -126,3 +126,9 @@ mod unphased {
     #[cfg(test)]
     pub mod spec_tests;
 }
+
+pub mod eip8321 {
+    pub mod beacon_state;
+    pub mod consts;
+    pub mod containers;
+}

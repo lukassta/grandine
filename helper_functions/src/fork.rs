@@ -951,6 +951,13 @@ pub fn upgrade_to_gloas<P: Preset>(
     Ok(post_state)
 }
 
+// EIP-8015 drops the Eth1 bridge fields here. An earlier version of this port also asserted
+// `pre.eth1_deposit_index == pre.deposit_requests_start_index` ("the bridge must be complete").
+// That assert is not in the pinned spec: `upgrade_to_heze` is infallible there, the spec's own
+// `run_fork_test` helper checks nothing about the bridge, and every official `heze`/`eip8321`
+// fork and transition vector expects the upgrade to succeed. It also made the upgrade fail for
+// any chain that never processed a deposit request, which would stop a node dead at a scheduled
+// fork, so it is deliberately not enforced.
 #[must_use]
 #[expect(clippy::too_many_lines)]
 pub fn upgrade_to_heze<P: Preset>(config: &Config, pre: GloasBeaconState<P>) -> HezeBeaconState<P> {
@@ -965,9 +972,9 @@ pub fn upgrade_to_heze<P: Preset>(config: &Config, pre: GloasBeaconState<P>) -> 
         block_roots,
         state_roots,
         historical_roots,
-        eth1_data,
-        eth1_data_votes,
-        eth1_deposit_index,
+        eth1_data: _,
+        eth1_data_votes: _,
+        eth1_deposit_index: _,
         validators,
         balances,
         randao_mixes,
@@ -985,7 +992,7 @@ pub fn upgrade_to_heze<P: Preset>(config: &Config, pre: GloasBeaconState<P>) -> 
         next_withdrawal_index,
         next_withdrawal_validator_index,
         historical_summaries,
-        deposit_requests_start_index,
+        deposit_requests_start_index: _,
         deposit_balance_to_consume,
         exit_balance_to_consume,
         earliest_exit_epoch,
@@ -1054,9 +1061,6 @@ pub fn upgrade_to_heze<P: Preset>(config: &Config, pre: GloasBeaconState<P>) -> 
         block_roots,
         state_roots,
         historical_roots,
-        eth1_data,
-        eth1_data_votes,
-        eth1_deposit_index,
         validators,
         balances,
         randao_mixes,
@@ -1074,7 +1078,6 @@ pub fn upgrade_to_heze<P: Preset>(config: &Config, pre: GloasBeaconState<P>) -> 
         next_withdrawal_index,
         next_withdrawal_validator_index,
         historical_summaries,
-        deposit_requests_start_index,
         deposit_balance_to_consume,
         exit_balance_to_consume,
         earliest_exit_epoch,
@@ -1252,6 +1255,69 @@ fn onboard_builders<P: Preset>(
     Ok(())
 }
 
+/// Upgrade Heze to EIP-8321. Every existing validator starts on legacy RANDAO.
+pub fn upgrade_to_eip8321<P: Preset>(
+    config: &Config,
+    pre: types::heze::beacon_state::BeaconState<P>,
+) -> Result<types::eip8321::beacon_state::BeaconState<P>> {
+    let epoch = accessors::get_current_epoch(&pre);
+    let randao_commitments = PersistentProgressiveList::try_from_iter(core::iter::repeat_n(
+        H256::zero(),
+        pre.validators.len_usize(),
+    ))?;
+    Ok(types::eip8321::beacon_state::BeaconState {
+        genesis_time: pre.genesis_time,
+        genesis_validators_root: pre.genesis_validators_root,
+        slot: pre.slot,
+        fork: Fork {
+            previous_version: pre.fork.current_version,
+            current_version: config.eip8321_fork_version,
+            epoch,
+        },
+        latest_block_header: pre.latest_block_header,
+        block_roots: pre.block_roots,
+        state_roots: pre.state_roots,
+        historical_roots: pre.historical_roots,
+        validators: pre.validators,
+        balances: pre.balances,
+        randao_mixes: pre.randao_mixes,
+        slashings: pre.slashings,
+        previous_epoch_participation: pre.previous_epoch_participation,
+        current_epoch_participation: pre.current_epoch_participation,
+        justification_bits: pre.justification_bits,
+        previous_justified_checkpoint: pre.previous_justified_checkpoint,
+        current_justified_checkpoint: pre.current_justified_checkpoint,
+        finalized_checkpoint: pre.finalized_checkpoint,
+        inactivity_scores: pre.inactivity_scores,
+        current_sync_committee: pre.current_sync_committee,
+        next_sync_committee: pre.next_sync_committee,
+        latest_block_hash: pre.latest_block_hash,
+        next_withdrawal_index: pre.next_withdrawal_index,
+        next_withdrawal_validator_index: pre.next_withdrawal_validator_index,
+        historical_summaries: pre.historical_summaries,
+        deposit_balance_to_consume: pre.deposit_balance_to_consume,
+        exit_balance_to_consume: pre.exit_balance_to_consume,
+        earliest_exit_epoch: pre.earliest_exit_epoch,
+        consolidation_balance_to_consume: pre.consolidation_balance_to_consume,
+        earliest_consolidation_epoch: pre.earliest_consolidation_epoch,
+        pending_deposits: pre.pending_deposits,
+        pending_partial_withdrawals: pre.pending_partial_withdrawals,
+        pending_consolidations: pre.pending_consolidations,
+        proposer_lookahead: pre.proposer_lookahead,
+        builders: pre.builders,
+        next_withdrawal_builder_index: pre.next_withdrawal_builder_index,
+        execution_payload_availability: pre.execution_payload_availability,
+        builder_pending_payments: pre.builder_pending_payments,
+        builder_pending_withdrawals: pre.builder_pending_withdrawals,
+        latest_execution_payload_bid: pre.latest_execution_payload_bid,
+        payload_expected_withdrawals: pre.payload_expected_withdrawals,
+        ptc_window: pre.ptc_window,
+        cache: pre.cache,
+        randao_commitments,
+        pending_randao_commitments: PersistentProgressiveList::default(),
+    })
+}
+
 #[cfg(test)]
 mod spec_tests {
     use spec_test_utils::Case;
@@ -1340,6 +1406,16 @@ mod spec_tests {
         run_heze_case::<Minimal>(case);
     }
 
+    #[test_resources("consensus-spec-tests/tests/mainnet/eip8321/fork/*/*/*")]
+    fn eip8321_mainnet(case: Case) {
+        run_eip8321_case::<Mainnet>(case);
+    }
+
+    #[test_resources("consensus-spec-tests/tests/minimal/eip8321/fork/*/*/*")]
+    fn eip8321_minimal(case: Case) {
+        run_eip8321_case::<Minimal>(case);
+    }
+
     fn run_altair_case<P: Preset>(case: Case) {
         let pre = case.ssz_default("pre");
         let expected_post = case.ssz_default("post");
@@ -1414,6 +1490,16 @@ mod spec_tests {
         let expected_post = case.ssz_default("post");
 
         let actual_post = upgrade_to_heze::<P>(&P::default_config(), pre);
+
+        assert_eq!(actual_post, expected_post);
+    }
+
+    fn run_eip8321_case<P: Preset>(case: Case) {
+        let pre = case.ssz_default("pre");
+        let expected_post = case.ssz_default("post");
+
+        let actual_post = upgrade_to_eip8321::<P>(&P::default_config(), pre)
+            .expect("upgrade from Heze to EIP-8321 should succeed");
 
         assert_eq!(actual_post, expected_post);
     }

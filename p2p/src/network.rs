@@ -44,7 +44,10 @@ use logging::{
     PEER_LOG_METRICS, debug_with_peers, error_with_peers, info_with_peers, trace_with_peers,
     warn_with_peers,
 };
-use operation_pools::{BlsToExecutionChangePool, Origin, PoolToP2pMessage, SyncCommitteeAggPool};
+use operation_pools::{
+    BlsToExecutionChangePool, Origin, PoolToP2pMessage, RandaoCommitmentRegistrationPool,
+    SyncCommitteeAggPool,
+};
 use prometheus_client::registry::Registry;
 use prometheus_metrics::Metrics;
 use ssz::ContiguousList;
@@ -54,6 +57,7 @@ use tokio_stream::wrappers::IntervalStream;
 use types::{
     altair::containers::{SignedContributionAndProof, SyncCommitteeMessage},
     capella::containers::SignedBlsToExecutionChange,
+    eip8321::containers::SignedRandaoCommitmentRegistration,
     combined::{
         Attestation, AttesterSlashing, DataColumnSidecar, SignedAggregateAndProof,
         SignedBeaconBlock, SignedExecutionPayloadBid,
@@ -134,6 +138,7 @@ pub struct Network<P: Preset, W: Wait> {
     dedicated_executor: Arc<DedicatedExecutor>,
     sync_committee_agg_pool: Arc<SyncCommitteeAggPool<P, W>>,
     bls_to_execution_change_pool: Arc<BlsToExecutionChangePool>,
+    randao_commitment_registration_pool: Arc<RandaoCommitmentRegistrationPool>,
     // TODO(Grandine Team): Is there a good reason to keep the `ForkContext` around?
     //                      The current fork can be determined from `Network.controller`
     //                      (or whatever replaces it). Fork digests can easily be computed from a
@@ -169,6 +174,7 @@ impl<P: Preset, W: Wait> Network<P, W> {
         dedicated_executor: Arc<DedicatedExecutor>,
         sync_committee_agg_pool: Arc<SyncCommitteeAggPool<P, W>>,
         bls_to_execution_change_pool: Arc<BlsToExecutionChangePool>,
+        randao_commitment_registration_pool: Arc<RandaoCommitmentRegistrationPool>,
         metrics: Option<Arc<Metrics>>,
         libp2p_registry: Option<&mut Registry>,
         data_dumper: Arc<DataDumper>,
@@ -289,6 +295,7 @@ impl<P: Preset, W: Wait> Network<P, W> {
             dedicated_executor,
             sync_committee_agg_pool,
             bls_to_execution_change_pool,
+            randao_commitment_registration_pool,
             fork_context,
             metrics,
             network_to_service_tx,
@@ -467,6 +474,9 @@ impl<P: Preset, W: Wait> Network<P, W> {
                         },
                         PoolToP2pMessage::PublishSignedBlsToExecutionChange(signed_bls_to_execution_change) => {
                             self.publish_signed_bls_to_execution_change(signed_bls_to_execution_change);
+                        },
+                        PoolToP2pMessage::PublishSignedRandaoCommitmentRegistration(registration) => {
+                            self.publish_signed_randao_commitment_registration(registration);
                         },
                     }
 
@@ -1117,6 +1127,15 @@ impl<P: Preset, W: Wait> Network<P, W> {
         ));
     }
 
+    fn publish_signed_randao_commitment_registration(
+        &self,
+        registration: Arc<SignedRandaoCommitmentRegistration>,
+    ) {
+        trace_with_peers!("publishing signed randao commitment registration: {registration:?}");
+
+        self.publish(PubsubMessage::RandaoCommitmentRegistration(registration));
+    }
+
     fn update_attestation_subnets(&self, subnet_actions: AttestationSubnetActions) {
         let chain_config = self.controller.chain_config();
         let current_slot = self.controller.slot();
@@ -1137,11 +1156,15 @@ impl<P: Preset, W: Wait> Network<P, W> {
 
                 let min_ttl = match expiration {
                     Some(expiration) => {
-                        let time_diff = expiration
-                            .saturating_sub(current_slot)
-                            .saturating_mul(chain_config.slot_duration_ms.as_secs());
+                        // Not `slots * slot_duration`: the slot duration can change at the
+                        // Heze boundary, so measure the gap piecewise.
+                        let time_diff = chain_config
+                            .duration_from_genesis_at_slot::<P>(expiration)
+                            .saturating_sub(
+                                chain_config.duration_from_genesis_at_slot::<P>(current_slot),
+                            );
 
-                        Instant::now().checked_add(Duration::from_secs(time_diff))
+                        Instant::now().checked_add(time_diff)
                     }
                     None => None,
                 };
@@ -2728,6 +2751,22 @@ impl<P: Preset, W: Wait> Network<P, W> {
                 self.bls_to_execution_change_pool
                     .notify_external_signed_bls_to_execution_change(
                         signed_bls_to_execution_change,
+                        Origin::Gossip(GossipId { source, message_id }),
+                    );
+            }
+            PubsubMessage::RandaoCommitmentRegistration(registration) => {
+                if let Some(metrics) = self.metrics.as_ref() {
+                    metrics.register_gossip_object(&["randao_commitment_registration"]);
+                }
+
+                trace_with_peers!(
+                    "received randao commitment registration as gossip: \
+                    {registration:?} from {source}"
+                );
+
+                self.randao_commitment_registration_pool
+                    .notify_external_signed_randao_commitment_registration(
+                        registration,
                         Origin::Gossip(GossipId { source, message_id }),
                     );
             }

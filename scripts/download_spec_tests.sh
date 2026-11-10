@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SPEC_VERSION="${SPEC_VERSION:-v1.7.0-beta.1}"
+SPEC_VERSION="${SPEC_VERSION:-v1.7.0-eip8321.1}"
 TESTS_DIR="consensus-spec-tests"
 VERSION_FILE="${TESTS_DIR}/.version"
-BASE_URL="https://github.com/ethereum/consensus-specs/releases/download/${SPEC_VERSION}"
+BASE_URL="https://github.com/lukassta/consensus-specs/releases/download/${SPEC_VERSION}"
 MAX_RETRIES="${MAX_RETRIES:-3}"
 
 # KZG and BLS test vectors were moved out of consensus-specs by
